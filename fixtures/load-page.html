@@ -1,12 +1,9 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>animbench fixture</title>
+<title>animbench load fixture</title>
 <style>
   body { margin: 0; background: #111; overflow: hidden; }
-  .box {
-    position: absolute; width: 40px; height: 40px;
-    background: #4af; will-change: transform;
-  }
+  .box { position: absolute; width: 30px; height: 30px; background: #4af; }
 </style>
 <body>
 <script>
@@ -25,9 +22,9 @@
     }
     return value;
   }
-  const count = positiveInt("count", 50);
-  const durationMs = positiveInt("duration", 2000);
-  const technique = params.get("technique") ?? "transform";
+  const count = positiveInt("count", 500);
+  const durationMs = positiveInt("duration", 3000);
+  const load = params.get("load") ?? "transform";
 
   const MAX_FRAMES = 20000;
   const timestamps = new Float64Array(MAX_FRAMES);
@@ -35,14 +32,33 @@
   let overflowed = false;
 
   const boxes = [];
+  const columns = Math.ceil(Math.sqrt(count));
   for (let i = 0; i < count; i++) {
     const box = document.createElement("div");
     box.className = "box";
-    box.style.top = `${(i % 20) * 45}px`;
-    box.style.left = `${Math.floor(i / 20) * 45}px`;
+    box.style.left = `${(i % columns) * 32}px`;
+    box.style.top = `${Math.floor(i / columns) * 32}px`;
     document.body.appendChild(box);
     boxes.push(box);
   }
+
+  // Each mode drives the same motion through a different pipeline stage, so a
+  // scene can be made to miss frames on demand.
+  const drivers = {
+    transform: (box, offset) => { box.style.transform = `translateX(${offset}px)`; },
+    layout: (box, offset, i) => { box.style.left = `${(i % columns) * 32 + offset}px`; },
+    readback: (box, offset, i) => {
+      box.style.left = `${(i % columns) * 32 + offset}px`;
+      // Forces a synchronous layout on every element, every frame.
+      void box.offsetLeft;
+    },
+    busy: (box, offset) => {
+      box.style.transform = `translateX(${offset}px)`;
+      let sink = 0;
+      for (let k = 0; k < 2000; k++) sink += Math.sqrt(k);
+      if (sink < 0) box.style.opacity = "0";
+    },
+  };
 
   function measureBaseline() {
     return new Promise((resolve) => {
@@ -54,39 +70,32 @@
         if (idle.length < 30) { requestAnimationFrame(tick); return; }
         const sorted = [...idle].sort((a, b) => a - b);
         const frameIntervalMs = sorted[Math.floor(sorted.length / 2)];
-        resolve({
-          frameIntervalMs,
-          refreshRateHz: 1000 / frameIntervalMs,
-          samples: idle,
-        });
+        resolve({ frameIntervalMs, refreshRateHz: 1000 / frameIntervalMs, samples: idle });
       }
       requestAnimationFrame(tick);
     });
   }
 
   function runAnimation(baseline) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const driver = drivers[load];
+      if (!driver) { reject(new Error(`unknown load mode: ${load}`)); return; }
+
       const startTime = performance.now();
       function frame(now) {
-        if (frameCount < MAX_FRAMES) {
-          timestamps[frameCount++] = now;
-        } else {
-          overflowed = true;
-        }
+        if (frameCount < MAX_FRAMES) timestamps[frameCount++] = now;
+        else overflowed = true;
+
         const t = (now - startTime) / 1000;
         for (let i = 0; i < boxes.length; i++) {
-          const offset = Math.sin(t * 2 + i * 0.1) * 100;
-          if (technique === "left") {
-            boxes[i].style.left = `${Math.floor(i / 20) * 45 + offset}px`;
-          } else {
-            boxes[i].style.transform = `translateX(${offset}px)`;
-          }
+          driver(boxes[i], Math.sin(t * 2 + i * 0.05) * 60, i);
         }
+
         if (now - startTime < durationMs) { requestAnimationFrame(frame); return; }
         resolve({
           timestamps: Array.from(timestamps.subarray(0, frameCount)),
           baseline,
-          meta: { technique, count, durationMs, userAgent: navigator.userAgent },
+          meta: { load, count, durationMs },
           startTime,
           endTime: now,
           overflowed,

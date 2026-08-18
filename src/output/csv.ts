@@ -48,6 +48,7 @@ export function buildCsv(aggregates: readonly GroupAggregate[]): string {
     ...parameterNames,
     "runsValid",
     "runsDiscarded",
+    "runsWarmup",
     "discardReasons",
     ...REPORTED.map(([metric, aggregate]) => `${metric}_${aggregate}`),
     // Spread across repetitions of the same combination: if this is comparable
@@ -66,6 +67,7 @@ export function buildCsv(aggregates: readonly GroupAggregate[]): string {
       ...parameterNames.map((name) => aggregate.combination[name] ?? ""),
       String(aggregate.runsValid),
       String(aggregate.runsDiscarded),
+      String(aggregate.runsWarmup),
       discardSummary,
       ...REPORTED.map(([metric, aggregate_]) => formatNumber(aggregate.metrics[metric][aggregate_])),
       formatNumber(aggregate.metrics.meanIntervalMs.stdDev),

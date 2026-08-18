@@ -28,6 +28,8 @@ export interface RunRecord {
   schema: 1;
   runId: string;
   batchId: string;
+  /** Shuffle seed of the batch, so its ordering can be reproduced from data. */
+  batchSeed?: number;
   recordedAt: string;
 
   url: string;

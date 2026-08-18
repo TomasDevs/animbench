@@ -5,6 +5,8 @@ import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
 import { aggregateRuns } from "./analysis/aggregate.js";
+import { ConfigError, loadConfig } from "./config/load.js";
+import { runBatch } from "./runner/batch.js";
 import { writeCsv } from "./output/csv.js";
 import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
 import type { RunEnvironment } from "./types/record.js";
@@ -119,7 +121,11 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
   }
 }
 
-async function commandAggregate(ndjsonPath: string, csvPath: string): Promise<void> {
+async function commandAggregate(
+  ndjsonPath: string,
+  csvPath: string,
+  batchId?: string,
+): Promise<void> {
   const { records, malformedLines } = await readNdjson(ndjsonPath);
 
   if (malformedLines.length > 0) {
@@ -131,12 +137,22 @@ async function commandAggregate(ndjsonPath: string, csvPath: string): Promise<vo
     return;
   }
 
-  const aggregates = aggregateRuns(records);
+  const aggregates = aggregateRuns(records, batchId ? { batchId } : {});
+  if (aggregates.length === 0) {
+    console.log(`No runs in ${ndjsonPath} belong to batch ${batchId}`);
+    process.exitCode = 1;
+    return;
+  }
   await writeCsv(csvPath, aggregates);
 
   const valid = aggregates.reduce((total, group) => total + group.runsValid, 0);
   const discarded = aggregates.reduce((total, group) => total + group.runsDiscarded, 0);
-  console.log(`${records.length} run(s), ${valid} valid, ${discarded} discarded`);
+  const warmup = aggregates.reduce((total, group) => total + group.runsWarmup, 0);
+  const counted = aggregates.reduce((total, group) => total + group.runsTotal, 0);
+  console.log(
+    `${counted} run(s), ${valid} valid, ${discarded} discarded, ${warmup} warm-up` +
+      (batchId ? ` (batch ${batchId})` : ""),
+  );
   console.log(`${aggregates.length} combination(s) written to ${csvPath}`);
 
   for (const group of aggregates) {
@@ -155,6 +171,54 @@ async function commandAggregate(ndjsonPath: string, csvPath: string): Promise<vo
       `  ${label}  n=${group.runsValid}  ${summary}` +
         (discards ? `  discarded[${discards}]` : ""),
     );
+  }
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  return minutes > 0 ? `${minutes}m ${totalSeconds % 60}s` : `${totalSeconds}s`;
+}
+
+async function commandBatch(configPath: string): Promise<void> {
+  const config = await loadConfig(configPath);
+  const startedAt = Date.now();
+
+  console.log(`Target:   ${config.target.url}`);
+  console.log(`Output:   ${config.output.ndjsonPath}`);
+  console.log("");
+
+  const summary = await runBatch(config, ({ sequence, total, record }) => {
+    const label =
+      Object.entries(record.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const status = record.valid
+      ? `${record.timestamps?.length ?? 0} frames`
+      : `discarded: ${record.discardReason}`;
+    const position = String(sequence + 1).padStart(String(total).length, " ");
+    console.log(`[${position}/${total}] ${label}  ${status}`);
+  });
+
+  console.log("");
+  console.log(`Batch ${summary.batchId}`);
+  if (summary.seed !== undefined) console.log(`Seed:     ${summary.seed}`);
+  console.log(
+    `Runs:     ${summary.total} planned, ${summary.valid} valid, ` +
+      `${summary.discarded} discarded, ${summary.warmup} warm-up`,
+  );
+  for (const [reason, count] of Object.entries(summary.discardReasons)) {
+    console.log(`            ${reason}: ${count}`);
+  }
+  console.log(`Elapsed:  ${formatDuration(Date.now() - startedAt)}`);
+
+  if (summary.abortedAfter) {
+    console.log("");
+    console.log(`ABORTED after run ${summary.abortedAfter.sequence + 1}: ${summary.abortedAfter.error}`);
+    process.exitCode = 1;
+  }
+
+  if (config.output.csvPath) {
+    console.log("");
+    await commandAggregate(config.output.ndjsonPath, config.output.csvPath, summary.batchId);
   }
 }
 
@@ -189,22 +253,42 @@ async function main(): Promise<void> {
   if (command === "aggregate") {
     const [ndjsonPath, csvPath] = rest;
     if (!ndjsonPath || !csvPath) {
-      console.log("Usage: animbench aggregate <file.ndjson> <file.csv>");
+      console.log("Usage: animbench aggregate <file.ndjson> <file.csv> [--batch <id>]");
       process.exitCode = 1;
       return;
     }
-    await commandAggregate(ndjsonPath, csvPath);
+    const batchIndex = rest.indexOf("--batch");
+    const batchId = batchIndex === -1 ? undefined : rest[batchIndex + 1];
+    if (batchIndex !== -1 && !batchId) {
+      console.log("--batch requires a batch id");
+      process.exitCode = 1;
+      return;
+    }
+    await commandAggregate(ndjsonPath, csvPath, batchId);
     return;
   }
 
-  console.log(
-    "Usage: animbench <check-gpu | run <url-or-file> [--out <file.ndjson>] | " +
-      "aggregate <file.ndjson> <file.csv>>",
-  );
+  if (command === "batch") {
+    const configPath = rest[0];
+    if (!configPath) {
+      console.log("Usage: animbench batch <config.json>");
+      process.exitCode = 1;
+      return;
+    }
+    await commandBatch(configPath);
+    return;
+  }
+
+  console.log("Usage: animbench <command>");
+  console.log("  check-gpu                          verify hardware acceleration");
+  console.log("  run <url-or-file> [--out <file>]   measure a single run");
+  console.log("  batch <config.json>                measure a matrix of combinations");
+  console.log("  aggregate <file.ndjson> <file.csv> [--batch <id>]   summarise recorded runs");
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
+  if (error instanceof ConfigError) console.error(`Config error: ${error.message}`);
+  else console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

@@ -19,7 +19,12 @@ export interface GroupAggregate {
 
   runsTotal: number;
   runsValid: number;
+  /**
+   * Runs lost to a failure. Warm-ups are excluded: they are discarded by
+   * design, so counting them here would hide whether anything actually failed.
+   */
   runsDiscarded: number;
+  runsWarmup: number;
   /** Discard reasons and their counts, so losses are never invisible. */
   discardReasons: Record<string, number>;
 
@@ -69,9 +74,25 @@ function groupKey(combination: Record<string, string>): string {
   );
 }
 
-export function aggregateRuns(records: readonly RunRecord[]): GroupAggregate[] {
+export interface AggregateOptions {
+  /**
+   * Restricts aggregation to one batch. The NDJSON file is append-only, so
+   * without this a repeated batch would be averaged together with the previous
+   * one.
+   */
+  batchId?: string;
+}
+
+export function aggregateRuns(
+  records: readonly RunRecord[],
+  options: AggregateOptions = {},
+): GroupAggregate[] {
+  const selected = options.batchId
+    ? records.filter((record) => record.batchId === options.batchId)
+    : records;
+
   const groups = new Map<string, RunRecord[]>();
-  for (const record of records) {
+  for (const record of selected) {
     const key = groupKey(record.combination);
     const existing = groups.get(key);
     if (existing) existing.push(record);
@@ -84,9 +105,14 @@ export function aggregateRuns(records: readonly RunRecord[]): GroupAggregate[] {
     const validRecords = groupRecords.filter((record) => record.valid);
 
     const discardReasons: Record<string, number> = {};
+    let warmupCount = 0;
     for (const record of groupRecords) {
       if (record.valid) continue;
       const reason = record.discardReason ?? "unknown";
+      if (reason === "warmup") {
+        warmupCount++;
+        continue;
+      }
       discardReasons[reason] = (discardReasons[reason] ?? 0) + 1;
     }
 
@@ -104,7 +130,8 @@ export function aggregateRuns(records: readonly RunRecord[]): GroupAggregate[] {
       meta: validRecords[0]?.meta ?? {},
       runsTotal: groupRecords.length,
       runsValid: runMetrics.length,
-      runsDiscarded: groupRecords.length - runMetrics.length,
+      runsDiscarded: groupRecords.length - runMetrics.length - warmupCount,
+      runsWarmup: warmupCount,
       discardReasons,
       metrics,
     });

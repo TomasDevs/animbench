@@ -5,6 +5,7 @@ import type { SingleRunOutcome } from "./single-run.js";
 
 export interface RecordContext {
   batchId: string;
+  batchSeed?: number;
   url: string;
   combination: Combination;
   repetition: number;
@@ -24,6 +25,7 @@ export function buildRunRecord(
     schema: 1,
     runId: randomUUID(),
     batchId: context.batchId,
+    ...(context.batchSeed !== undefined ? { batchSeed: context.batchSeed } : {}),
     recordedAt: context.recordedAt,
     url: context.url,
     combination: context.combination,
