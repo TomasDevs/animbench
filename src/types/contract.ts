@@ -7,6 +7,7 @@
 
 export const CONTRACT_KEYS = {
   ready: "__benchReady",
+  start: "__benchStart",
   result: "__benchResult",
   done: "__benchDone",
   error: "__benchError",

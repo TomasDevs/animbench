@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>animbench fixture</title>
+<style>
+  body { margin: 0; background: #111; overflow: hidden; }
+  .box {
+    position: absolute; width: 40px; height: 40px;
+    background: #4af; will-change: transform;
+  }
+</style>
+<body>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const count = Number(params.get("count") ?? 50);
+  const durationMs = Number(params.get("duration") ?? 2000);
+  const technique = params.get("technique") ?? "transform";
+
+  const MAX_FRAMES = 20000;
+  const timestamps = new Float64Array(MAX_FRAMES);
+  let frameCount = 0;
+  let overflowed = false;
+
+  const boxes = [];
+  for (let i = 0; i < count; i++) {
+    const box = document.createElement("div");
+    box.className = "box";
+    box.style.top = `${(i % 20) * 45}px`;
+    box.style.left = `${Math.floor(i / 20) * 45}px`;
+    document.body.appendChild(box);
+    boxes.push(box);
+  }
+
+  function measureBaseline() {
+    return new Promise((resolve) => {
+      const idle = [];
+      let last = null;
+      function tick(now) {
+        if (last !== null) idle.push(now - last);
+        last = now;
+        if (idle.length < 30) { requestAnimationFrame(tick); return; }
+        const sorted = [...idle].sort((a, b) => a - b);
+        const frameIntervalMs = sorted[Math.floor(sorted.length / 2)];
+        resolve({
+          frameIntervalMs,
+          refreshRateHz: 1000 / frameIntervalMs,
+          samples: idle,
+        });
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function runAnimation(baseline) {
+    return new Promise((resolve) => {
+      const startTime = performance.now();
+      function frame(now) {
+        if (frameCount < MAX_FRAMES) {
+          timestamps[frameCount++] = now;
+        } else {
+          overflowed = true;
+        }
+        const t = (now - startTime) / 1000;
+        for (let i = 0; i < boxes.length; i++) {
+          const offset = Math.sin(t * 2 + i * 0.1) * 100;
+          if (technique === "left") {
+            boxes[i].style.left = `${Math.floor(i / 20) * 45 + offset}px`;
+          } else {
+            boxes[i].style.transform = `translateX(${offset}px)`;
+          }
+        }
+        if (now - startTime < durationMs) { requestAnimationFrame(frame); return; }
+        resolve({
+          timestamps: Array.from(timestamps.subarray(0, frameCount)),
+          baseline,
+          meta: { technique, count, durationMs, userAgent: navigator.userAgent },
+          startTime,
+          endTime: now,
+          overflowed,
+        });
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  async function main() {
+    const baseline = await measureBaseline();
+    window.__benchStart = async () => {
+      try {
+        window.__benchResult = await runAnimation(baseline);
+      } catch (error) {
+        window.__benchError = { message: String((error && error.message) || error) };
+      }
+      window.__benchDone = true;
+    };
+    window.__benchReady = true;
+  }
+
+  main().catch((error) => {
+    window.__benchError = { message: String(error && error.message || error), stack: error && error.stack };
+    window.__benchDone = true;
+  });
+})();
+</script>
+</body>
