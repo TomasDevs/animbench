@@ -66,15 +66,16 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
     const outcome = await withPage({}, async (page) => {
       const verdict = evaluateGpuReport(await inspectGpu(page));
       const measured = await measureOnce(page, url, DEFAULT_TIMING);
-      const devicePixelRatio = measured.ok ? measured.devicePixelRatio : null;
 
       const environment: RunEnvironment = {
         browser: verdict.report.chromeVersion,
         operatingSystem: verdict.report.operatingSystem,
         renderer: verdict.report.webglRenderer,
         hardwareAccelerated: verdict.accelerated,
-        viewport: DEFAULT_BROWSER.viewport,
-        devicePixelRatio,
+        viewport: measured.ok
+          ? { width: measured.viewport.width, height: measured.viewport.height }
+          : DEFAULT_BROWSER.viewport,
+        devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
       };
       return { measured, environment, accelerated: verdict.accelerated };
     });

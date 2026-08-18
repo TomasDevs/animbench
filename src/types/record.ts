@@ -6,6 +6,7 @@ export type DiscardReason =
   | "overflowed"
   | "page-error"
   | "contract-violation"
+  | "stale-build"
   | "timeout"
   | "navigation-error";
 
@@ -15,6 +16,11 @@ export interface RunEnvironment {
   /** WebGL renderer, the evidence that the GPU rather than the CPU drew. */
   renderer: string | null;
   hardwareAccelerated: boolean;
+  /**
+   * What the page actually saw, read from the page rather than taken from the
+   * configuration: a scene that lays itself out by viewport width would
+   * otherwise be compared across differently sized windows without any trace.
+   */
   viewport: { width: number; height: number };
   devicePixelRatio: number | null;
 }

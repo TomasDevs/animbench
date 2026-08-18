@@ -170,10 +170,13 @@ export async function runBatch(
               combination: run.combination,
               repetition: run.repetition,
               sequence: index,
-              environment: {
-                ...environment,
-                devicePixelRatio: outcome.ok ? outcome.devicePixelRatio : null,
-              },
+              environment: outcome.ok
+                ? {
+                    ...environment,
+                    viewport: { width: outcome.viewport.width, height: outcome.viewport.height },
+                    devicePixelRatio: outcome.viewport.devicePixelRatio,
+                  }
+                : environment,
               warmup: run.warmup,
               ...(config.labels ? { labels: config.labels } : {}),
               recordedAt: new Date().toISOString(),

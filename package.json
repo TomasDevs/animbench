@@ -16,7 +16,9 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "tsx --test test/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "playwright": "^1.49.0"

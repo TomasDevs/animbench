@@ -10,10 +10,16 @@ import type { TimingConfig } from "../types/config.js";
 import { DEFAULT_TIMING } from "../types/config.js";
 import type { DiscardReason } from "../types/record.js";
 
+export interface PageViewport {
+  width: number;
+  height: number;
+  devicePixelRatio: number | null;
+}
+
 export interface SingleRunSuccess {
   ok: true;
   result: BenchResult;
-  devicePixelRatio: number | null;
+  viewport: PageViewport;
 }
 
 export interface SingleRunFailure {
@@ -68,14 +74,22 @@ async function waitForReady(page: Page, timeoutMs: number): Promise<void> {
 async function startRun(page: Page): Promise<void> {
   const started = await page.evaluate((key) => {
     const start = (window as unknown as Record<string, unknown>)[key];
-    if (typeof start !== "function") return false;
+    if (typeof start !== "function") return typeof start;
     (start as () => void)();
-    return true;
+    return "started";
   }, CONTRACT_KEYS.start);
 
-  if (!started) {
-    throw new ContractError(`page exposes no ${CONTRACT_KEYS.start}() function`, "contract-violation");
-  }
+  if (started === "started") return;
+
+  // A page that announces readiness but exposes no way to start it is almost
+  // always a build predating the start hook, served by a stale process. Saying
+  // so beats a generic contract violation, because the fix is to rebuild or
+  // restart the server, not to change the adapter.
+  throw new ContractError(
+    `page set ${CONTRACT_KEYS.ready} but exposes no ${CONTRACT_KEYS.start}() function ` +
+      `(found ${started}); the served build may predate the start hook`,
+    "stale-build",
+  );
 }
 
 async function waitForDone(page: Page, timeoutMs: number): Promise<void> {
@@ -146,8 +160,12 @@ export async function measureOnce(
       throw new ContractError("page reported a timestamp buffer overflow", "overflowed");
     }
 
-    const devicePixelRatio = await page.evaluate(() => window.devicePixelRatio);
-    return { ok: true, result, devicePixelRatio };
+    const viewport = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+    }));
+    return { ok: true, result, viewport };
   } catch (error) {
     if (error instanceof ContractError) {
       return { ok: false, reason: error.reason, detail: error.message };
