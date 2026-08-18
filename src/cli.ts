@@ -3,7 +3,9 @@ import { pathToFileURL } from "node:url";
 import { evaluateGpuReport, inspectGpu, runGpuCheck } from "./diagnostics/gpu.js";
 import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
-import { NdjsonWriter, installInterruptHandler } from "./output/ndjson.js";
+import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
+import { aggregateRuns } from "./analysis/aggregate.js";
+import { writeCsv } from "./output/csv.js";
 import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
 import type { RunEnvironment } from "./types/record.js";
 
@@ -26,6 +28,13 @@ function printGpuVerdict(verdict: Awaited<ReturnType<typeof runGpuCheck>>): void
   }
   console.log(`FAILED: ${missing.join(", ")}`);
   console.log("Measurements taken in this browser are not comparable.");
+}
+
+/** The query parameters of a run become its grouping key during aggregation. */
+function combinationFromUrl(url: string): Record<string, string> {
+  const combination: Record<string, string> = {};
+  for (const [name, value] of new URL(url).searchParams) combination[name] = value;
+  return combination;
 }
 
 /**
@@ -76,7 +85,7 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
       {
         batchId,
         url,
-        combination: {},
+        combination: combinationFromUrl(url),
         repetition: 0,
         sequence: 0,
         environment: outcome.environment,
@@ -110,6 +119,45 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
   }
 }
 
+async function commandAggregate(ndjsonPath: string, csvPath: string): Promise<void> {
+  const { records, malformedLines } = await readNdjson(ndjsonPath);
+
+  if (malformedLines.length > 0) {
+    console.log(`WARNING: ${malformedLines.length} unreadable line(s): ${malformedLines.join(", ")}`);
+  }
+  if (records.length === 0) {
+    console.log(`No runs found in ${ndjsonPath}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const aggregates = aggregateRuns(records);
+  await writeCsv(csvPath, aggregates);
+
+  const valid = aggregates.reduce((total, group) => total + group.runsValid, 0);
+  const discarded = aggregates.reduce((total, group) => total + group.runsDiscarded, 0);
+  console.log(`${records.length} run(s), ${valid} valid, ${discarded} discarded`);
+  console.log(`${aggregates.length} combination(s) written to ${csvPath}`);
+
+  for (const group of aggregates) {
+    const label = Object.entries(group.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const discards = Object.entries(group.discardReasons)
+      .map(([reason, count]) => `${reason}:${count}`)
+      .join(" ");
+    const summary =
+      group.runsValid === 0
+        ? "no valid runs"
+        : `fps=${group.metrics.meanFps.mean.toFixed(1)}  ` +
+          `p1=${group.metrics.p1Fps.mean.toFixed(1)}  ` +
+          `over=${group.metrics.framesOverBudget.mean.toFixed(1)}`;
+
+    console.log(
+      `  ${label}  n=${group.runsValid}  ${summary}` +
+        (discards ? `  discarded[${discards}]` : ""),
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
 
@@ -138,7 +186,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log("Usage: animbench <check-gpu | run <url-or-file> [--out <file.ndjson>]>");
+  if (command === "aggregate") {
+    const [ndjsonPath, csvPath] = rest;
+    if (!ndjsonPath || !csvPath) {
+      console.log("Usage: animbench aggregate <file.ndjson> <file.csv>");
+      process.exitCode = 1;
+      return;
+    }
+    await commandAggregate(ndjsonPath, csvPath);
+    return;
+  }
+
+  console.log(
+    "Usage: animbench <check-gpu | run <url-or-file> [--out <file.ndjson>] | " +
+      "aggregate <file.ndjson> <file.csv>>",
+  );
   process.exitCode = 1;
 }
 
