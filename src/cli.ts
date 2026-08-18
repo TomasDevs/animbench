@@ -1,7 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { runGpuCheck } from "./diagnostics/gpu.js";
+import { evaluateGpuReport, inspectGpu, runGpuCheck } from "./diagnostics/gpu.js";
+import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
-import { DEFAULT_TIMING } from "./types/config.js";
+import { NdjsonWriter, installInterruptHandler } from "./output/ndjson.js";
+import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
+import type { RunEnvironment } from "./types/record.js";
 
 function printGpuVerdict(verdict: Awaited<ReturnType<typeof runGpuCheck>>): void {
   const { report, missing, accelerated } = verdict;
@@ -39,27 +43,71 @@ function resolveTarget(target: string): string {
   return fileUrl.toString();
 }
 
-async function commandRun(target: string): Promise<void> {
+async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
   const url = resolveTarget(target);
+  const batchId = randomUUID();
   console.log(`Running ${url}`);
 
-  const outcome = await withPage({}, (page) => measureOnce(page, url, DEFAULT_TIMING));
+  const writer = ndjsonPath ? new NdjsonWriter(ndjsonPath) : undefined;
+  const removeInterruptHandler = writer ? installInterruptHandler(writer) : undefined;
 
-  if (!outcome.ok) {
-    console.log(`DISCARDED (${outcome.reason}): ${outcome.detail}`);
-    process.exitCode = 1;
-    return;
+  try {
+    const outcome = await withPage({}, async (page) => {
+      const verdict = evaluateGpuReport(await inspectGpu(page));
+      const measured = await measureOnce(page, url, DEFAULT_TIMING);
+      const devicePixelRatio = measured.ok ? measured.devicePixelRatio : null;
+
+      const environment: RunEnvironment = {
+        browser: verdict.report.chromeVersion,
+        operatingSystem: verdict.report.operatingSystem,
+        renderer: verdict.report.webglRenderer,
+        hardwareAccelerated: verdict.accelerated,
+        viewport: DEFAULT_BROWSER.viewport,
+        devicePixelRatio,
+      };
+      return { measured, environment, accelerated: verdict.accelerated };
+    });
+
+    if (!outcome.accelerated) {
+      console.log("WARNING: hardware acceleration not confirmed; results are not comparable.");
+    }
+
+    const record = buildRunRecord(
+      {
+        batchId,
+        url,
+        combination: {},
+        repetition: 0,
+        sequence: 0,
+        environment: outcome.environment,
+        warmup: false,
+        recordedAt: new Date().toISOString(),
+      },
+      outcome.measured,
+    );
+
+    await writer?.write(record);
+
+    if (!outcome.measured.ok) {
+      console.log(`DISCARDED (${outcome.measured.reason}): ${outcome.measured.detail}`);
+      process.exitCode = 1;
+    } else {
+      const { result } = outcome.measured;
+      console.log("");
+      console.log(`Frames:        ${result.timestamps.length}`);
+      console.log(`Duration:      ${(result.endTime - result.startTime).toFixed(1)} ms`);
+      console.log(
+        `Baseline:      ${result.baseline.frameIntervalMs.toFixed(3)} ms ` +
+          `(${result.baseline.refreshRateHz.toFixed(1)} Hz)`,
+      );
+      console.log(`Meta:          ${JSON.stringify(result.meta)}`);
+    }
+
+    if (ndjsonPath) console.log(`Written to ${ndjsonPath}`);
+  } finally {
+    removeInterruptHandler?.();
+    await writer?.close();
   }
-
-  const { result } = outcome;
-  const durationMs = result.endTime - result.startTime;
-  console.log("");
-  console.log(`Frames:        ${result.timestamps.length}`);
-  console.log(`Duration:      ${durationMs.toFixed(1)} ms`);
-  console.log(`Baseline:      ${result.baseline.frameIntervalMs.toFixed(3)} ms ` +
-    `(${result.baseline.refreshRateHz.toFixed(1)} Hz)`);
-  console.log(`Meta:          ${JSON.stringify(result.meta)}`);
-  console.log(`First stamps:  ${result.timestamps.slice(0, 5).map((t) => t.toFixed(2)).join(", ")}`);
 }
 
 async function main(): Promise<void> {
@@ -75,15 +123,22 @@ async function main(): Promise<void> {
   if (command === "run") {
     const target = rest[0];
     if (!target) {
-      console.log("Usage: animbench run <url-or-file>");
+      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>]");
       process.exitCode = 1;
       return;
     }
-    await commandRun(target);
+    const outIndex = rest.indexOf("--out");
+    const ndjsonPath = outIndex === -1 ? undefined : rest[outIndex + 1];
+    if (outIndex !== -1 && !ndjsonPath) {
+      console.log("--out requires a file path");
+      process.exitCode = 1;
+      return;
+    }
+    await commandRun(target, ndjsonPath);
     return;
   }
 
-  console.log("Usage: animbench <check-gpu | run <url-or-file>>");
+  console.log("Usage: animbench <check-gpu | run <url-or-file> [--out <file.ndjson>]>");
   process.exitCode = 1;
 }
 
