@@ -33,6 +33,8 @@ export interface GroupAggregate {
 
 const METRIC_KEYS = [
   "frameCount",
+  "recordedFrameCount",
+  "trimmedRatio",
   "durationMs",
   "budgetMs",
   "refreshRateHz",

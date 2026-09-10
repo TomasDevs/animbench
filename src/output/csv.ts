@@ -18,6 +18,9 @@ const REPORTED = [
   ["budgetMs", "median"],
   ["refreshRateHz", "median"],
   ["frameCount", "mean"],
+  // Shown so a narrowed measurement is never mistaken for a whole run.
+  ["recordedFrameCount", "mean"],
+  ["trimmedRatio", "mean"],
 ] as const;
 
 function escapeCell(value: string): string {

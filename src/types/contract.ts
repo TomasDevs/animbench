@@ -28,6 +28,39 @@ export interface BenchBaseline {
 export type BenchMeta = Record<string, unknown>;
 
 /**
+ * Optional window of full load, in the same clock as `timestamps`. A scene that
+ * starts its elements gradually is under a rising, then falling load, so an
+ * average over the whole run mixes three different workloads. A page that knows
+ * when every element was running reports it here and only that span is measured.
+ *
+ * Names of the meta keys carrying the window. The tool cannot derive them: it
+ * knows nothing about how a scene ramps up.
+ */
+export const STEADY_STATE_KEYS = {
+  from: "steadyStateFromMs",
+  to: "steadyStateToMs",
+} as const;
+
+export interface SteadyStateWindow {
+  fromMs: number;
+  toMs: number;
+}
+
+/**
+ * Reads the window a page declared. Returns null when the page declares none,
+ * which keeps the tool usable against scenes that have no ramp at all.
+ */
+export function readSteadyStateWindow(meta: BenchMeta | undefined): SteadyStateWindow | null {
+  if (!meta) return null;
+  const from = meta[STEADY_STATE_KEYS.from];
+  const to = meta[STEADY_STATE_KEYS.to];
+  if (typeof from !== "number" || !Number.isFinite(from)) return null;
+  if (typeof to !== "number" || !Number.isFinite(to)) return null;
+  if (to <= from) return null;
+  return { fromMs: from, toMs: to };
+}
+
+/**
  * Read from the page after a run. The page performs no aggregation: computing
  * inside the page would load the very thread being measured.
  */
