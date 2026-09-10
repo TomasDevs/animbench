@@ -58,7 +58,7 @@ export interface BenchConfig {
 
 export const DEFAULT_TIMING: TimingConfig = {
   readyTimeoutMs: 30_000,
-  runTimeoutMs: 120_000,
+  runTimeoutMs: 300_000,
   cooldownMs: 3_000,
 };
 

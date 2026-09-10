@@ -5,6 +5,7 @@ import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
 import { aggregateRuns } from "./analysis/aggregate.js";
+import { computeRunMetrics } from "./analysis/metrics.js";
 import { ConfigError, loadConfig } from "./config/load.js";
 import { runBatch } from "./runner/batch.js";
 import { writeCsv } from "./output/csv.js";
@@ -189,14 +190,29 @@ async function commandBatch(configPath: string): Promise<void> {
   console.log(`Output:   ${config.output.ndjsonPath}`);
   console.log("");
 
+  const thinSamples: string[] = [];
+
   const summary = await runBatch(config, ({ sequence, total, record }) => {
     const label =
       Object.entries(record.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
-    const status = record.valid
-      ? `${record.timestamps?.length ?? 0} frames`
-      : `discarded: ${record.discardReason}`;
     const position = String(sequence + 1).padStart(String(total).length, " ");
-    console.log(`[${position}/${total}] ${label}  ${status}`);
+
+    if (!record.valid) {
+      console.log(`[${position}/${total}] ${label}  discarded: ${record.discardReason}`);
+      return;
+    }
+
+    // Reported as the batch runs: a thin window is worth knowing about while
+    // there is still time to widen it, not once the analysis is under way.
+    const metrics = computeRunMetrics(record);
+    const measured = metrics?.frameCount ?? record.timestamps?.length ?? 0;
+    const window = metrics?.trimmed ? ` in window, ${measured} of ${metrics.recordedFrameCount}` : "";
+    const warning = metrics?.unreliablePercentiles.length
+      ? `  [too few samples for ${metrics.unreliablePercentiles.join(", ")}]`
+      : "";
+
+    if (warning) thinSamples.push(`${label} (${measured} samples)`);
+    console.log(`[${position}/${total}] ${label}  ${measured} frames${window}${warning}`);
   });
 
   console.log("");
@@ -210,6 +226,13 @@ async function commandBatch(configPath: string): Promise<void> {
     console.log(`            ${reason}: ${count}`);
   }
   console.log(`Elapsed:  ${formatDuration(Date.now() - startedAt)}`);
+
+  if (thinSamples.length > 0) {
+    console.log("");
+    console.log(`WARNING: ${thinSamples.length} run(s) had too few samples for some percentiles.`);
+    for (const entry of [...new Set(thinSamples)].slice(0, 5)) console.log(`  ${entry}`);
+    console.log("Widen the measured window for those combinations.");
+  }
 
   if (summary.abortedAfter) {
     console.log("");
