@@ -1,0 +1,331 @@
+# animbench — návod k použití
+
+Nástroj pro měření časování snímků webových animací. Otevře stránku ve
+viditelném okně prohlížeče, počká, až ohlásí připravenost, spustí měření
+a odečte surová časová razítka. Statistiky se počítají až v Node — nikdy ve
+stránce, která se měří.
+
+Nástroj neví nic o konkrétní aplikaci. Funguje proti jakékoli stránce, která
+splní [kontrakt](#kontrakt).
+
+---
+
+## Instalace
+
+```bash
+pnpm install
+pnpm exec playwright install chromium
+```
+
+Vyžaduje Node 20 nebo novější.
+
+---
+
+## Než začnete měřit
+
+```bash
+pnpm dev check-gpu
+```
+
+Vypíše stav grafické akcelerace. **Compositing i Rasterization musí hlásit
+hardwarovou akceleraci**, jinak prohlížeč kreslí na procesoru a výsledky nejsou
+srovnatelné. Příkaz končí nenulovým návratovým kódem, když podmínka neplatí,
+takže jde zařadit před měření ve skriptu.
+
+Měří se vždy ve viditelném okně. Bezhlavý režim Chromia používá softwarový
+rasterizér SwiftShader místo grafické karty, čímž by zmizela právě ta výhoda
+kompozitoru, kterou měření zkoumá.
+
+---
+
+## Příkazy
+
+```
+animbench check-gpu                                       ověří akceleraci
+animbench run <adresa> [--out <soubor.ndjson>]            jeden běh
+animbench batch <config.json>                             matice kombinací
+animbench aggregate <soubor.ndjson> <soubor.csv> [--batch <id>]   souhrn
+```
+
+Ve vývoji se spouštějí přes `pnpm dev <příkaz>`, po sestavení (`pnpm build`)
+přes `node dist/cli.js <příkaz>`.
+
+### Jeden běh
+
+Pro rychlé ověření, že stránka kontrakt plní:
+
+```bash
+pnpm dev run 'http://localhost:4173/bench.html?technique=raf&complexity=500'
+```
+
+Vypíše počet snímků, dobu běhu, naměřenou klidovou frekvenci a obsah `meta` —
+nebo důvod, proč běh neprošel. S `--out` zapíše výsledek do souboru NDJSON.
+
+Přijímá i cestu k lokálnímu souboru včetně query parametrů.
+
+### Dávka
+
+Ostré měření se spouští konfiguračním souborem:
+
+```bash
+pnpm dev batch config.json
+```
+
+Nástroj vypíše průběh po jednotlivých bězích a na konci souhrn. Když je v okně
+málo vzorků na percentily, upozorní na to už během měření.
+
+Přerušení klávesami Ctrl+C zapisovač korektně uzavře, takže dosud naměřené běhy
+zůstanou v souboru.
+
+### Souhrn
+
+```bash
+pnpm dev aggregate results/runs.ndjson results/summary.csv
+```
+
+Dávka s vyplněným `output.csvPath` tohle udělá sama. Samostatně se příkaz hodí
+při přepočtu už naměřených dat — třeba po změně kritérií.
+
+Soubor NDJSON se zapisuje přidáváním na konec, takže může obsahovat víc dávek.
+Přepínač `--batch <id>` omezí souhrn na jednu; bez něj se sečtou všechny, což
+u opakovaného měření zprůměruje nesouvisející běhy.
+
+---
+
+## Konfigurace
+
+```json
+{
+  "target": {
+    "url": "http://localhost:4173/bench.html",
+    "matrix": {
+      "technique": ["raf", "css-transition"],
+      "complexity": ["100", "500", "2000"]
+    }
+  },
+  "timing": { "readyTimeoutMs": 30000, "runTimeoutMs": 300000, "cooldownMs": 15000 },
+  "batch": { "repetitions": 10, "warmupRuns": 1, "shuffle": true, "seed": 20260911 },
+  "browser": {
+    "headless": false,
+    "viewport": { "width": 1280, "height": 720 },
+    "requireHardwareAcceleration": true
+  },
+  "output": {
+    "ndjsonPath": "results/runs.ndjson",
+    "csvPath": "results/summary.csv"
+  },
+  "labels": { "device": "MacBook Air M3", "display": "60Hz" }
+}
+```
+
+### target
+
+| pole | význam |
+|---|---|
+| `url` | adresa měřené stránky; relativní cesta se vyhodnotí vůči konfiguračnímu souboru |
+| `matrix` | názvy parametrů a jejich hodnoty |
+
+Z matice vznikne kartézský součin: příklad výše dá 2 × 3 = 6 kombinací. Hodnoty
+se předají stránce jako parametry v adrese a zapíší se ke každému běhu jako
+klíč, podle kterého se výsledky seskupují.
+
+Názvy parametrů jsou libovolné. Nástroj jim nerozumí a nepotřebuje — jen je
+předá a zaznamená.
+
+### timing
+
+| pole | výchozí | význam |
+|---|---|---|
+| `readyTimeoutMs` | 30 000 | jak dlouho čekat na `__benchReady` |
+| `runTimeoutMs` | 300 000 | jak dlouho čekat na `__benchDone` |
+| `cooldownMs` | 3 000 | prodleva mezi běhy |
+
+Prodleva slouží k vychladnutí zařízení. U dlouhých zátěžových běhů na pasivně
+chlazených strojích má smysl ji zvýšit.
+
+### batch
+
+| pole | výchozí | význam |
+|---|---|---|
+| `repetitions` | 10 | měřená opakování každé kombinace |
+| `warmupRuns` | 1 | rozehřívací běhy, které se zahazují |
+| `shuffle` | true | náhodné pořadí měřených běhů |
+| `seed` | náhodný | semínko míchání |
+
+Rozehřívací běhy proběhnou vždy jako první a do výsledků nevstupují. Měřené
+běhy se zamíchají, aby postupné zahřívání zařízení nezvýhodnilo tu kombinaci,
+která by jinak běžela první.
+
+Semínko se vždy vypíše a zapíše ke každému běhu, i když se nezadá — jinak by
+pořadí nešlo zopakovat.
+
+### browser
+
+| pole | výchozí | význam |
+|---|---|---|
+| `headless` | false | viditelné okno; pro měření nechat vypnuté |
+| `viewport` | 1280 × 720 | velikost okna |
+| `requireHardwareAcceleration` | true | zastavit dávku, když akcelerace neběží |
+
+Velikost okna musí být napříč porovnávanými běhy stejná, pokud se scéna
+přizpůsobuje jeho šířce. Nástroj zaznamenává rozměr, který stránka skutečně
+viděla, ne ten z konfigurace.
+
+### output a labels
+
+`ndjsonPath` je povinná, `csvPath` volitelná. `labels` jsou libovolné popisky
+zapsané ke každému běhu — hodí se na označení zařízení nebo účelu měření.
+
+---
+
+## Kontrakt
+
+Stránka vystavuje na `window` pět hodnot:
+
+| klíč | typ | význam |
+|---|---|---|
+| `__benchReady` | `true` | scéna je postavená a adaptér inicializovaný |
+| `__benchStart` | `() => void` | tímto nástroj spustí měření |
+| `__benchResult` | objekt | surová razítka a metadata po doběhnutí |
+| `__benchDone` | `true` | výsledek je k dispozici |
+| `__benchError` | `{ message, stack? }` | místo výsledku, pokud běh selhal |
+
+Nástroj po načtení počká na `__benchReady`, zavolá `__benchStart()`, počká na
+`__benchDone` a odečte `__benchResult`. Na návratovou hodnotu `__benchStart`
+nečeká — konec běhu ohlašuje výhradně `__benchDone`.
+
+### `__benchResult`
+
+```ts
+{
+  timestamps: number[],       // z performance.now(), v ms, nejméně dvě
+  baseline: {
+    frameIntervalMs: number,  // klidový rozestup snímků, > 0
+    refreshRateHz: number,    // odvozená obnovovací frekvence, > 0
+    samples?: number[]
+  },
+  meta: { ... },              // libovolné klíče
+  startTime: number,
+  endTime: number,
+  overflowed: boolean         // true, když došel buffer na razítka
+}
+```
+
+Ve stránce se nic nepočítá. Výpočet by zatížil právě to vlákno, které se měří.
+
+`baseline` se měří v klidu před během a odvozuje se z ní rozpočet na snímek.
+Pevná hodnota 16,7 ms by na displeji se 75 nebo 144 Hz byla chybná.
+
+`meta` je volné. Cokoli tam stránka dá, nástroj zaznamená, ale neinterpretuje.
+
+### Měřené okno
+
+Scéna, která své prvky rozjíždí postupně, je nejprve pod rostoucí, pak klesající
+zátěží. Průměr přes celý běh proto míchá tři různé zátěže a skutečnou zátěž
+podhodnocuje.
+
+Stránka, která ví, kdy byly všechny prvky v pohybu, to ohlásí v `meta`:
+
+```ts
+meta: {
+  steadyStateFromMs: number,  // kdy se rozběhl poslední prvek
+  steadyStateToMs: number     // kdy se začal zastavovat první
+}
+```
+
+Obojí ve stejné časové ose jako `timestamps`. Nástroj pak počítá metriky jen
+z tohoto úseku. Značka je volitelná — bez ní se měří celý běh.
+
+Surová razítka zůstávají v NDJSON nezkrácená, takže při změně kritéria lze
+přepočítat bez nového měření.
+
+---
+
+## Výstupy
+
+### NDJSON
+
+Jeden řádek na běh, surová data. Zahozené běhy se zapisují také, s `valid:
+false`, důvodem a podrobností — v datech je tak vidět, kolik běhů odpadlo a
+proč.
+
+Důvody zahození:
+
+| důvod | význam |
+|---|---|
+| `warmup` | rozehřívací běh, zahazuje se záměrně |
+| `overflowed` | stránce došel buffer na razítka |
+| `page-error` | stránka ohlásila `__benchError` |
+| `contract-violation` | výsledek nemá očekávaný tvar |
+| `stale-build` | stránka je připravená, ale nevystavuje `__benchStart` |
+| `timeout` | stránka neohlásila připravenost nebo dokončení včas |
+| `navigation-error` | adresu se nepodařilo načíst |
+
+`stale-build` obvykle znamená, že server posílá starší sestavení — pomůže
+přebuildovat nebo restartovat.
+
+### CSV
+
+Jeden řádek na kombinaci. První sloupce jsou parametry matice, pak počty běhů
+a metriky.
+
+| sloupec | význam |
+|---|---|
+| `runsValid` | započítané běhy |
+| `runsDiscarded` | ztracené běhy (bez rozehřívacích) |
+| `runsWarmup` | rozehřívací běhy |
+| `discardReasons` | důvody a jejich počty |
+| `meanIntervalMs_mean` | průměrný rozestup snímků |
+| `medianIntervalMs_mean` | medián rozestupu |
+| `p95IntervalMs_mean`, `p99IntervalMs_mean` | percentily rozestupů |
+| `maxIntervalMs_max` | nejdelší snímek |
+| `meanFps_mean` | průměrná snímková frekvence |
+| `p5Fps_mean`, `p1Fps_mean` | 5. a 1. percentil frekvence |
+| `framesOverBudget_mean` | snímky nad rozpočtem |
+| `framesOverBudgetRatio_mean` | jejich podíl |
+| `refreshRatio_mean` | podíl dosažené a dosažitelné frekvence |
+| `budgetMs_median`, `refreshRateHz_median` | rozpočet a frekvence displeje |
+| `frameCount_mean` | snímky, ze kterých se počítalo |
+| `recordedFrameCount_mean` | snímky celkem, včetně oříznutých |
+| `trimmedRatio_mean` | podíl oříznutých snímků |
+| `meanIntervalMs_stdDev` | rozptyl mezi opakováními téže kombinace |
+| `meanFps_min`, `meanFps_max` | rozsah mezi opakováními |
+
+---
+
+## Jak číst výsledky
+
+**`refreshRatio` je hlavní metrika pro srovnání napříč zařízeními.** Absolutní
+snímková frekvence se mezi displeji s různou obnovovací frekvencí srovnávat
+nedá; podíl dosažené a dosažitelné frekvence ano.
+
+**Percentily místo minima.** Nejdelší snímek rozhodne jediná odlehlá hodnota;
+mezi opakováními téže kombinace kolísá o desítky procent, zatímco medián
+rozestupu o desetiny. Nejdelší snímek proto patří k doprovodným údajům, ne
+k závěrům.
+
+**Percentily potřebují vzorky.** Měřeno proti referenci z celého okna:
+`p5Fps` se ustálí kolem 75 vzorků, `p1Fps` až kolem 300 — pod tím kolísá
+o stovky procent. Nástroj na nedostatek vzorků upozorní během měření; takové
+běhy se nezahazují, ale příslušný percentil se nemá interpretovat.
+
+**Rozptyl mezi opakováními roste se zátěží.** U nezatížených kombinací bývá
+pod procentem, u techniky blízko svých mezí i přes 30 %. Proto deset opakování,
+ne dvě.
+
+**Zkontrolujte `trimmedRatio_mean`.** Vysoká hodnota znamená, že se z běhu
+měřil malý úsek — pak je na místě ověřit, jestli v okně zbylo dost vzorků.
+
+---
+
+## Vývoj
+
+```bash
+pnpm check      # typová kontrola a testy
+pnpm test       # jen testy
+pnpm build      # sestavení do dist/
+```
+
+Testy pokrývají statistiku, metriky, agregaci, kontrakt, plánování dávky,
+konfiguraci a výstupy. V `fixtures/` jsou stránky plnící kontrakt i stránky
+záměrně porušené — nástroj tak jde ověřit bez měřené aplikace.
