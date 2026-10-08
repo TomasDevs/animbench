@@ -55,7 +55,10 @@ function resolveTarget(target: string): string {
   return fileUrl.toString();
 }
 
-async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
+/** Sampling interval used by `run --cpu`; a batch sets its own in the config. */
+const RUN_CPU_SAMPLE_INTERVAL_MS = 1000;
+
+async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false): Promise<void> {
   const url = resolveTarget(target);
   const batchId = randomUUID();
   console.log(`Running ${url}`);
@@ -66,7 +69,10 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
   try {
     const outcome = await withPage({}, async (page) => {
       const verdict = evaluateGpuReport(await inspectGpu(page));
-      const measured = await measureOnce(page, url, DEFAULT_TIMING);
+      const timing = sampleCpu
+        ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
+        : DEFAULT_TIMING;
+      const measured = await measureOnce(page, url, timing);
 
       const environment: RunEnvironment = {
         browser: verdict.report.chromeVersion,
@@ -114,6 +120,18 @@ async function commandRun(target: string, ndjsonPath?: string): Promise<void> {
           `(${result.baseline.refreshRateHz.toFixed(1)} Hz)`,
       );
       console.log(`Meta:          ${JSON.stringify(result.meta)}`);
+
+      const samples = outcome.measured.cpuSamples;
+      if (samples && samples.length >= 2) {
+        const first = samples[0]!;
+        const last = samples[samples.length - 1]!;
+        const span = last.t - first.t;
+        const task = last.mainThread.taskMs - first.mainThread.taskMs;
+        console.log(
+          `CPU samples:   ${samples.length} over ${(span / 1000).toFixed(1)} s, ` +
+            `main thread busy ${((task / span) * 100).toFixed(0)} % (whole run, ramp included)`,
+        );
+      }
     }
 
     if (ndjsonPath) console.log(`Written to ${ndjsonPath}`);
@@ -167,7 +185,10 @@ async function commandAggregate(
         ? "no valid runs"
         : `fps=${group.metrics.meanFps.mean.toFixed(1)}  ` +
           `p1=${group.metrics.p1Fps.mean.toFixed(1)}  ` +
-          `over=${group.metrics.framesOverBudget.mean.toFixed(1)}`;
+          `over=${group.metrics.framesOverBudget.mean.toFixed(1)}` +
+          (Number.isFinite(group.metrics.mainThreadBusyRatio.mean)
+            ? `  main=${(group.metrics.mainThreadBusyRatio.mean * 100).toFixed(0)}%`
+            : "");
 
     console.log(
       `  ${label}  n=${group.runsValid}  ${summary}` +
@@ -259,7 +280,7 @@ async function main(): Promise<void> {
   if (command === "run") {
     const target = rest[0];
     if (!target) {
-      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>]");
+      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>] [--cpu]");
       process.exitCode = 1;
       return;
     }
@@ -270,7 +291,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    await commandRun(target, ndjsonPath);
+    await commandRun(target, ndjsonPath, rest.includes("--cpu"));
     return;
   }
 
@@ -305,7 +326,7 @@ async function main(): Promise<void> {
 
   console.log("Usage: animbench <command>");
   console.log("  check-gpu                          verify hardware acceleration");
-  console.log("  run <url-or-file> [--out <file>]   measure a single run");
+  console.log("  run <url-or-file> [--out <file>] [--cpu]   measure a single run");
   console.log("  batch <config.json>                measure a matrix of combinations");
   console.log("  aggregate <file.ndjson> <file.csv> [--batch <id>]   summarise recorded runs");
   process.exitCode = 1;

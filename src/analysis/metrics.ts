@@ -1,8 +1,9 @@
 import { readSteadyStateWindow } from "../types/contract.js";
 import type { RunRecord } from "../types/record.js";
+import { computeCpuMetrics, type CpuMetrics } from "./cpu.js";
 import { frameIntervals, mean, percentile, standardDeviation } from "./statistics.js";
 
-export interface RunMetrics {
+export interface RunMetrics extends CpuMetrics {
   /** Frames the metrics were computed from, after any steady-state trim. */
   frameCount: number;
   durationMs: number;
@@ -114,7 +115,14 @@ export function computeRunMetrics(record: RunRecord): RunMetrics | null {
   if (intervals.length < MIN_SAMPLES.p95) unreliablePercentiles.push("p5Fps");
   if (intervals.length < MIN_SAMPLES.p99) unreliablePercentiles.push("p1Fps");
 
+  const cpu = computeCpuMetrics(
+    record.cpuSamples,
+    timestamps[0] as number,
+    timestamps[timestamps.length - 1] as number,
+  );
+
   return {
+    ...cpu,
     frameCount: timestamps.length,
     unreliablePercentiles,
     durationMs: (timestamps[timestamps.length - 1] as number) - (timestamps[0] as number),

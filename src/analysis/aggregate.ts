@@ -50,6 +50,14 @@ const METRIC_KEYS = [
   "framesOverBudget",
   "framesOverBudgetRatio",
   "refreshRatio",
+  "mainThreadBusyRatio",
+  "mainThreadScriptRatio",
+  "mainThreadStyleRatio",
+  "mainThreadLayoutRatio",
+  "mainThreadOtherRatio",
+  "rendererCpuRatio",
+  "gpuProcessCpuRatio",
+  "cpuSampleCount",
 ] as const satisfies readonly (keyof RunMetrics)[];
 
 function aggregateValues(values: number[]): AggregatedMetric {

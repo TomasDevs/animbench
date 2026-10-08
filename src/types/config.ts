@@ -17,6 +17,8 @@ export interface TimingConfig {
   readyTimeoutMs: number;
   runTimeoutMs: number;
   cooldownMs: number;
+  /** Interval of CPU sampling during a run; absent or 0 turns it off. */
+  cpuSampleIntervalMs?: number;
 }
 
 export interface BatchConfig {

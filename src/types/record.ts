@@ -26,6 +26,31 @@ export interface RunEnvironment {
 }
 
 /**
+ * Cumulative counters read over CDP while a run is in progress. Values only
+ * ever grow; the cost of a span is the difference between two samples, which is
+ * computed in Node like everything else.
+ */
+export interface CpuSample {
+  /** Page clock (`performance.now()`), the axis `timestamps` use. */
+  t: number;
+  /** Main thread of the measured page, in milliseconds. */
+  mainThread: {
+    taskMs: number;
+    scriptMs: number;
+    styleMs: number;
+    layoutMs: number;
+  };
+  /**
+   * CPU time per browser process, in milliseconds. The GPU process figure is
+   * processor time spent driving the GPU, not GPU utilisation.
+   */
+  processCpuMs: {
+    renderer: number;
+    gpu: number;
+  };
+}
+
+/**
  * One line of the NDJSON output. Timestamps stay raw: everything derived is
  * computed later in Node, so nothing but reading burdens the measured thread.
  */
@@ -59,6 +84,7 @@ export interface RunRecord {
   startTime?: number;
   endTime?: number;
   overflowed?: boolean;
+  cpuSamples?: CpuSample[];
 
   environment: RunEnvironment;
   labels?: Record<string, string>;

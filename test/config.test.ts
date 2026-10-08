@@ -77,3 +77,12 @@ test("relative paths resolve against the config file, keeping any query string",
   assert.ok(config.target.url.startsWith("file:///tmp/fixtures/load-page.html"));
   assert.ok(config.target.url.endsWith("?load=readback"), "the query string must survive");
 });
+
+test("CPU sampling stays off unless the config asks for it", () => {
+  assert.equal(parseConfig(minimal).timing.cpuSampleIntervalMs, undefined);
+  assert.equal(
+    parseConfig({ ...minimal, timing: { cpuSampleIntervalMs: 500 } }).timing.cpuSampleIntervalMs,
+    500,
+  );
+  rejects({ ...minimal, timing: { cpuSampleIntervalMs: -1 } }, "cannot be negative");
+});

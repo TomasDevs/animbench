@@ -42,7 +42,7 @@ kompozitoru, kterou měření zkoumá.
 
 ```
 animbench check-gpu                                       ověří akceleraci
-animbench run <adresa> [--out <soubor.ndjson>]            jeden běh
+animbench run <adresa> [--out <soubor.ndjson>] [--cpu]    jeden běh
 animbench batch <config.json>                             matice kombinací
 animbench aggregate <soubor.ndjson> <soubor.csv> [--batch <id>]   souhrn
 ```
@@ -61,7 +61,8 @@ pnpm dev run 'http://localhost:4173/bench.html?technique=raf&complexity=500'
 Vypíše počet snímků, dobu běhu, naměřenou klidovou frekvenci a obsah `meta` —
 nebo důvod, proč běh neprošel. S `--out` zapíše výsledek do souboru NDJSON.
 
-Přijímá i cestu k lokálnímu souboru včetně query parametrů.
+Přijímá i cestu k lokálnímu souboru včetně query parametrů. S `--cpu` se během
+běhu vzorkuje i čas procesoru (viz [Vytížení procesoru](#vytížení-procesoru)).
 
 ### Dávka
 
@@ -139,6 +140,7 @@ předá a zaznamená.
 | `readyTimeoutMs` | 30 000 | jak dlouho čekat na `__benchReady` |
 | `runTimeoutMs` | 300 000 | jak dlouho čekat na `__benchDone` |
 | `cooldownMs` | 3 000 | prodleva mezi běhy |
+| `cpuSampleIntervalMs` | vypnuto | interval vzorkování procesoru; pro měření 1 000 |
 
 Prodleva slouží k vychladnutí zařízení. U dlouhých zátěžových běhů na pasivně
 chlazených strojích má smysl ji zvýšit.
@@ -290,6 +292,14 @@ a metriky.
 | `trimmedRatio_mean` | podíl oříznutých snímků |
 | `meanIntervalMs_stdDev` | rozptyl mezi opakováními téže kombinace |
 | `meanFps_min`, `meanFps_max` | rozsah mezi opakováními |
+| `mainThreadBusyRatio_mean` | podíl času, kdy bylo hlavní vlákno zaneprázdněné |
+| `mainThreadStyleRatio_mean`, `…ScriptRatio_mean`, `…LayoutRatio_mean` | z toho přepočet stylů, skript, layout |
+| `mainThreadOtherRatio_mean` | práce hlavního vlákna mimo tyto tři kategorie |
+| `rendererCpuRatio_mean` | CPU čas procesu stránky; může přesáhnout 1 (víc vláken) |
+| `gpuProcessCpuRatio_mean` | CPU čas procesu, který řídí grafickou kartu |
+| `cpuSampleCount_mean` | počet vzorků uvnitř měřeného okna |
+
+Sloupce procesoru jsou prázdné, když dávka běžela bez vzorkování.
 
 ---
 
@@ -315,6 +325,50 @@ ne dvě.
 
 **Zkontrolujte `trimmedRatio_mean`.** Vysoká hodnota znamená, že se z běhu
 měřil malý úsek — pak je na místě ověřit, jestli v okně zbylo dost vzorků.
+
+---
+
+**U techniky, která vynechává snímky, nepoužívejte medián.** Rozestupy pak
+nabývají jen dvou hodnot (rozpočet a jeho dvojnásobek) a medián mezi nimi mezi
+opakováními přeskakuje — u `css-transition` při 2000 prvcích kolísal o ±7 ms.
+Stabilní jsou `refreshRatio` a podíl snímků nad rozpočtem.
+
+---
+
+## Vytížení procesoru
+
+S `cpuSampleIntervalMs` nástroj během běhu čte přes DevTools protokol čítače
+času hlavního vlákna stránky a CPU času jednotlivých procesů prohlížeče. Stránka
+přitom nespouští žádný kód navíc. Vzorky se ukládají surové; podíly pro měřené
+okno se počítají až v Node, s hodnotou na hranách okna dopočtenou interpolací.
+
+Dvě omezení pro interpretaci:
+
+- čas hlavního vlákna pokrývá jen vlákno měřené stránky, ne kompozitor;
+- „CPU čas GPU procesu" je čas procesoru, který grafickou kartu řídí, **ne
+  vytížení grafické karty**. Prohlížeč vytížení GPU nevystavuje.
+
+### Režie
+
+Ověřeno na `css-transition` při 2000 prvcích — technice na hranici výkonu, kde
+by se jakákoli režie projevila nejdřív. Deset běhů na variantu, prokládaně
+v náhodném pořadí:
+
+| | vypnuto | 500 ms | 100 ms |
+|---|---|---|---|
+| `refreshRatio` | 0,668 | 0,662 | 0,653 |
+| snímky nad rozpočtem | 48,5 % | 49,8 % | 51,8 % |
+
+Při 500 ms není rozdíl proti vypnutému průkazný (permutační test, p ≥ 0,5);
+95% interval režie v `refreshRatio` je [−0,026; +0,013], tedy nejvýš desetina
+rozdílu mezi měřenými technikami. Při 100 ms je posun průkazný a všechny
+metriky se s hustším vzorkováním posouvají stejným směrem — režie tedy existuje
+a roste s hustotou.
+
+Hustší vzorkování přitom přesnost nezvyšuje: vytížení hlavního vlákna vyšlo
+81,7 % při 500 ms a 81,2 % při 100 ms. Čítače jsou kumulativní, takže záleží jen
+na vzorcích u hran okna. Proto se pro měření používá **1 000 ms** a ve výchozím
+stavu je vzorkování vypnuté.
 
 ---
 

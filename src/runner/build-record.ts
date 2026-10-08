@@ -50,6 +50,7 @@ export function buildRunRecord(
   record.startTime = result.startTime;
   record.endTime = result.endTime;
   record.overflowed = result.overflowed;
+  if (outcome.cpuSamples) record.cpuSamples = outcome.cpuSamples;
 
   if (context.warmup) {
     record.discardReason = "warmup";
