@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { evaluateGpuReport, inspectGpu, runGpuCheck } from "./diagnostics/gpu.js";
+import { readEnvironment } from "./diagnostics/environment.js";
+import { runGpuCheck, type GpuStatus } from "./diagnostics/gpu.js";
 import { readHostInfo, readPowerState, type HostInfo, type PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
@@ -13,16 +14,14 @@ import { writeCsv } from "./output/csv.js";
 import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
 import type { RunEnvironment } from "./types/record.js";
 
-function printGpuVerdict(verdict: Awaited<ReturnType<typeof runGpuCheck>>): void {
-  const { report, missing, accelerated } = verdict;
+function printGpuStatus(status: GpuStatus): void {
+  const { features, renderer, missing, accelerated } = status;
 
-  console.log("Browser:  ", report.chromeVersion ?? "unknown");
-  console.log("System:   ", report.operatingSystem ?? "unknown");
-  console.log("Renderer: ", report.webglRenderer ?? "unknown");
+  console.log("Renderer: ", renderer ?? "unknown");
   console.log("");
   console.log("Graphics feature status");
-  for (const feature of report.features) {
-    console.log(`  ${feature.hardwareAccelerated ? "[hw]" : "[  ]"} ${feature.name}: ${feature.status}`);
+  for (const [name, value] of Object.entries(features).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`  ${/^enabled/.test(value) ? "[on]" : "[  ]"} ${name}: ${value}`);
   }
   console.log("");
 
@@ -69,7 +68,7 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
 
   try {
     const outcome = await withPage({}, async (page) => {
-      const verdict = evaluateGpuReport(await inspectGpu(page));
+      const base = await readEnvironment(page, DEFAULT_BROWSER.viewport);
       const timing = sampleCpu
         ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
         : DEFAULT_TIMING;
@@ -78,18 +77,14 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
       const powerEnd = await readPowerState();
 
       const environment: RunEnvironment = {
-        browser: verdict.report.chromeVersion,
-        operatingSystem: verdict.report.operatingSystem,
-        renderer: verdict.report.webglRenderer,
-        hardwareAccelerated: verdict.accelerated,
+        ...base,
         viewport: measured.ok
           ? { width: measured.viewport.width, height: measured.viewport.height }
           : DEFAULT_BROWSER.viewport,
         devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
-        host: await readHostInfo(),
         power: { start: powerStart, end: powerEnd },
       };
-      return { measured, environment, accelerated: verdict.accelerated };
+      return { measured, environment, accelerated: base.hardwareAccelerated };
     });
 
     if (!outcome.accelerated) {
@@ -233,6 +228,17 @@ async function commandBatch(configPath: string): Promise<void> {
   const thinSamples: string[] = [];
 
   const summary = await runBatch(config, ({ sequence, total, record }) => {
+    const capabilities = record.environment.capabilities;
+    if (sequence === 0 && capabilities) {
+      const mark = (available: boolean) => (available ? "yes" : "NO");
+      console.log(
+        `CDP:      GPU status ${mark(capabilities.gpuStatus)}, ` +
+          `main-thread metrics ${mark(capabilities.mainThreadMetrics)}, ` +
+          `process CPU ${mark(capabilities.processCpu)}`,
+      );
+      console.log("");
+    }
+
     const label =
       Object.entries(record.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
     const position = String(sequence + 1).padStart(String(total).length, " ");
@@ -291,7 +297,7 @@ async function main(): Promise<void> {
 
   if (command === "check-gpu") {
     const verdict = await runGpuCheck();
-    printGpuVerdict(verdict);
+    printGpuStatus(verdict);
     if (!verdict.accelerated) process.exitCode = 1;
     return;
   }

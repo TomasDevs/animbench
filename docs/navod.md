@@ -27,8 +27,8 @@ Vyžaduje Node 20 nebo novější.
 pnpm dev check-gpu
 ```
 
-Vypíše stav grafické akcelerace. **Compositing i Rasterization musí hlásit
-hardwarovou akceleraci**, jinak prohlížeč kreslí na procesoru a výsledky nejsou
+Vypíše stav grafické akcelerace. **`gpu_compositing` i `rasterization` musí
+hlásit `enabled`**, jinak prohlížeč kreslí na procesoru a výsledky nejsou
 srovnatelné. Příkaz končí nenulovým návratovým kódem, když podmínka neplatí,
 takže jde zařadit před měření ve skriptu.
 

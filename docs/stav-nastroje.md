@@ -29,11 +29,17 @@ metodickou kapitolu práce.
 
 Bezhlavý Chromium vykresluje přes SwiftShader, softwarový rasterizér na
 procesoru; ve viditelném okně jede vykreslování přes Metal na grafické kartě.
-Bezhlavý režim navíc `chrome://gpu` vůbec neotevře, takže v něm akceleraci nelze
-ani ověřit. Výhoda kompozitoru, kterou práce zkoumá, by v něm zmizela.
+Výhoda kompozitoru, kterou práce zkoumá, by v bezhlavém režimu zmizela.
 
-Nástroj před každou dávkou ověří, že Compositing a Rasterization hlásí
-hardwarovou akceleraci, a jinak dávku nespustí.
+Nástroj před každou dávkou ověří, že kompozice i rasterizace běží na grafické
+kartě, a jinak dávku nespustí. Stav čte přes DevTools protokol
+(`SystemInfo.getInfo`), ne ze stránky `chrome://gpu`: ta se v bezhlavém režimu
+ani na Androidu vůbec neotevře a její struktura se mění s verzemi prohlížeče.
+
+Ke každému běhu se navíc zapisuje, které údaje DevTools protokolu daná
+platforma poskytuje. Na Androidu například prohlížeč odpoví i na dotaz na CPU
+čas procesů, jen u izolovaných procesů rendereru a grafiky hlásí vždy nulu;
+nástroj takový údaj zapíše jako nedostupný, ne jako nulové vytížení.
 
 ### 2. Rozpočet snímku se odvozuje z naměřené frekvence
 

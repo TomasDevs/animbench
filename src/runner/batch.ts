@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Page } from "playwright";
-import { evaluateGpuReport, inspectGpu } from "../diagnostics/gpu.js";
-import { readHostInfo, readPowerState } from "../diagnostics/host.js";
+import { readEnvironment } from "../diagnostics/environment.js";
+import { readPowerState } from "../diagnostics/host.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
@@ -106,19 +105,6 @@ export interface BatchSummary {
   abortedAfter?: { sequence: number; error: string };
 }
 
-async function readEnvironment(page: Page, config: BenchConfig): Promise<RunEnvironment> {
-  const verdict = evaluateGpuReport(await inspectGpu(page));
-  return {
-    browser: verdict.report.chromeVersion,
-    operatingSystem: verdict.report.operatingSystem,
-    renderer: verdict.report.webglRenderer,
-    hardwareAccelerated: verdict.accelerated,
-    viewport: config.browser.viewport,
-    devicePixelRatio: null,
-    host: await readHostInfo(),
-  };
-}
-
 export async function runBatch(
   config: BenchConfig,
   onProgress?: (progress: BatchProgress) => void,
@@ -138,7 +124,7 @@ export async function runBatch(
     const environment = await withPage(
       { headless: config.browser.headless, viewport: config.browser.viewport },
       async (page) => {
-        const environment = await readEnvironment(page, config);
+        const environment = await readEnvironment(page, config.browser.viewport);
 
         if (config.browser.requireHardwareAcceleration && !environment.hardwareAccelerated) {
           throw new Error(
