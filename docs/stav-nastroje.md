@@ -1,240 +1,219 @@
-# animbench — stav nástroje a kontrakt pro demo aplikaci
+# animbench — stav nástroje a metodická rozhodnutí
 
-Stav k 18. 8. 2026. Dokument shrnuje, co je v měřicím nástroji hotové, co z toho
-plyne pro demo aplikaci `animbench-lab` a čím se pokračuje.
-
----
-
-## Shrnutí pro netrpělivé
-
-Měřicí nástroj je hotový a ověřený. **Demo aplikace může pokračovat.**
-
-Jedna věc se ale oproti původnímu zadání změnila a demo aplikace ji musí
-zohlednit: kontrakt má **pět** klíčů, ne čtyři. Přibyl `window.__benchStart`.
-Podrobnosti níže v kapitole [Kontrakt](#kontrakt-který-musí-stránka-splnit).
+Stav k 8. 10. 2026. Jak nástroj používat, popisuje [návod](navod.md). Tento
+dokument zaznamenává, **proč** je nástroj takový, jaký je: každé metodické
+rozhodnutí spolu s měřením, které k němu vedlo. Slouží jako podklad pro
+metodickou kapitolu práce.
 
 ---
 
-## Proč se čekalo a jak to dopadlo
+## Stav
 
-Čekalo se na rozhodovací bod: dvacet běhů shodné kombinace a posouzení, jestli
-rozptyl mezi shodnými běhy není srovnatelný s rozdílem mezi technikami. Kdyby
-byl, metodika by padala a musela by se přepracovat dřív, než začne ostré měření.
-
-**Rozptyl mezi shodnými běhy** (n = 20, náhodné pořadí, 2 s prodleva):
-
-| metrika | průměr | směrodatná odchylka | variační koeficient |
-|---|---|---|---|
-| průměrné FPS | 22,38 | 1,32 | 5,9 % |
-| medián rozestupu snímků | 49,76 ms | 0,24 | **0,5 %** |
-| snímky nad rozpočtem | 45,1 | 2,61 | 5,8 % |
-| 1. percentil FPS | 16,04 | 4,78 | 29,8 % |
-| nejdelší snímek | 78,85 ms | 46,95 | **59,5 %** |
-
-**Rozdíl mezi technikami** (n = 8 na techniku, tři různě náročné režimy):
-
-```
-readback vs transform:  rozdíl 51,63 FPS,  sdružená sd 0,45,  Cohenovo d = 115
-layout   vs transform:  rozdíl  0,01 FPS,  sdružená sd 0,01,  Cohenovo d = 0,9
-```
-
-**Závěr: rozptyl je řádově menší než rozdíl mezi technikami. Metodika obstála,
-ostré měření může začít.**
-
-### Ale pozor — co to neznamená
-
-Rozhodovací bod ověřil, že **nástroj měří spolehlivě**. Neověřil, že se
-**techniky v demo aplikaci rozejdou** — to nástroj zjistit nemůže.
-
-Poslední řádek tabulky je varování: `layout vs transform` = rozdíl 0,01 FPS. Obě
-techniky jedou na stropu displeje a nástroj mezi nimi nerozliší nic. Správně,
-protože tam žádný rozdíl není.
-
-Testovací stroj (Apple M3) je rychlý. Aby srovnání technik mělo co ukázat, musí
-být scény natolik náročné, aby se techniky rozešly. Při ladění scén je užitečné
-vědět, že M3 nesrazí pod 75 FPS ani 1500 animovaných prvků poháněných přes
-`transform` nebo přes `left` — spolehlivě to dokázal až vynucený synchronní
-layout každý snímek.
-
-**Toto je nyní hlavní riziko celé práce a leží na straně demo aplikace.**
-Doporučení: u každé scény si ověřit, že aspoň v nejnáročnějším nastavení klesá
-frekvence pod strop displeje. Scéna, kde všechny techniky jedou na 100 %,
-neposkytne data k porovnání.
-
----
-
-## Kontrakt, který musí stránka splnit
-
-Toto je jediné, co nástroj o stránce ví. Nezná techniky, scény ani adresy;
-všechno popisné cestuje uvnitř `meta` jako neinterpretovaná data.
-
-### Klíče na `window`
-
-| klíč | typ | význam |
-|---|---|---|
-| `__benchReady` | `true` | scéna je postavená a adaptér inicializovaný |
-| `__benchStart` | `() => void` | **nově** — nástroj tímto spustí měření |
-| `__benchResult` | objekt | surová razítka a metadata po doběhnutí |
-| `__benchDone` | `true` | výsledek je k dispozici |
-| `__benchError` | objekt | nastaví se místo výsledku, pokud běh selhal |
-
-### Změna oproti původnímu zadání: `__benchStart`
-
-Původní kontrakt měl čtyři klíče, všechny jen ke čtení. Nástroj tak neměl čím
-měření spustit — stránka by musela startovat sama a nešlo by oddělit dobu stavby
-scény od doby měřeného běhu.
-
-Adaptér tedy po dokončení příprav vystaví funkci `window.__benchStart` a teprve
-pak nastaví `__benchReady = true`. Nástroj po zaznamenání připravenosti tuto
-funkci zavolá.
-
-**Bez `__benchStart` skončí každý běh s `contract-violation`.**
-
-### Tvar `__benchResult`
-
-```ts
-{
-  timestamps: number[],       // razítka z performance.now(), v ms, aspoň dvě
-  baseline: {
-    frameIntervalMs: number,  // klidový rozestup snímků (medián), > 0
-    refreshRateHz: number,    // odvozená obnovovací frekvence, > 0
-    samples?: number[]        // volitelně surové klidové vzorky
-  },
-  meta: { ... },              // libovolné klíče; nástroj je nikdy neinterpretuje
-  startTime: number,          // performance.now() na začátku běhu
-  endTime: number,            // performance.now() na konci běhu
-  overflowed: boolean         // true, pokud došel buffer na razítka
-}
-```
-
-### Tvar `__benchError`
-
-```ts
-{ message: string, stack?: string }
-```
-
-### Tři pravidla, na kterých stojí platnost měření
-
-1. **Ve stránce se nic nepočítá.** Žádné průměry, žádné percentily. Výpočet ve
-   stránce by zatížil právě to vlákno, které se měří. Všechno se počítá až
-   v Node.
-
-2. **`meta` je volné.** Cokoli tam adaptér dá (technika, scéna, počet prvků,
-   parametry prostředí), nástroj zaznamená a použije k seskupení, ale nikdy
-   neinterpretuje. Sem patří všechno, co má být v datech vidět.
-
-3. **`baseline` je povinná a měří se před během.** Rozpočet na snímek se odvozuje
-   z ní, ne z pevných 16,7 ms. Ověřeno prakticky: testovací displej běží na
-   75 Hz, rozpočet je tedy 13,3 ms. Na 120Hz a 144Hz displejích by pevná hodnota
-   byla ještě víc mimo.
-
-### Parametry běhu
-
-Nástroj předává kombinace jako query parametry v adrese. Názvy i hodnoty jsou
-volné — matice se zadává v konfiguraci nástroje, aplikace si je jen přečte
-z `location.search`.
-
-**Doporučení z praxe:** parametry validovat a při nesmyslné hodnotě nastavit
-`__benchError`. Během vývoje se ukázalo, že `?count=abc` vedlo k `NaN`, prázdné
-scéně a vykázané perfektní frekvenci — vypadalo to jako výborné měření. Takový
-tichý nesmysl je horší než hlášená chyba.
-
-### Minimální kostra adaptéru
-
-```js
-async function main() {
-  const baseline = await measureBaseline();   // klidové rozestupy před během
-  buildScene();                               // postavit scénu
-
-  window.__benchStart = async () => {
-    try {
-      window.__benchResult = await runAnimation(baseline);
-    } catch (error) {
-      window.__benchError = { message: String(error?.message ?? error) };
-    }
-    window.__benchDone = true;
-  };
-
-  window.__benchReady = true;                 // až úplně nakonec
-}
-
-main().catch((error) => {
-  window.__benchError = { message: String(error?.message ?? error) };
-  window.__benchDone = true;
-});
-```
-
----
-
-## Co je v nástroji hotové
-
-| | stav |
+| oblast | stav |
 |---|---|
-| kostra projektu (Node 22, TS, tsx, tsup, Playwright) | hotovo |
-| ověření hardwarové akcelerace | hotovo |
-| typy: kontrakt, konfigurace, záznam | hotovo |
-| jeden běh proti kontraktu | hotovo |
-| zápis NDJSON | hotovo |
-| agregace a výstup CSV | hotovo |
-| dávkové spouštění | hotovo |
-| **rozhodovací bod** | **prošel** |
-
-### Příkazy
-
-```
-animbench check-gpu                                   ověří hardwarovou akceleraci
-animbench run <adresa> [--out <soubor.ndjson>]        jeden běh
-animbench batch <config.json>                         matice kombinací
-animbench aggregate <soubor.ndjson> <soubor.csv>      souhrn do CSV
-```
-
-### Metodická rozhodnutí, která už jsou ověřená
-
-**Viditelné okno, ne bezhlavý režim.** Ověřeno přímo: ve viditelném okně jede
-vykreslování přes Metal na M3, v bezhlavém přes SwiftShader — softwarový
-rasterizér na CPU. Bezhlavý režim navíc `chrome://gpu` vůbec neotevře, takže
-v něm akceleraci nelze ani ověřit.
-
-**Rozpočet z naměřené frekvence.** Odvozuje se z `baseline`, ne z 16,7 ms. Snímek
-se počítá jako propadlý až nad 1,5násobkem rozpočtu — bez této tolerance by se
-mezi propady dostal běžný jitter razítek.
-
-**Zahozené běhy se zapisují i s důvodem.** Nemizí potichu; v CSV je vidět, kolik
-běhů odpadlo a proč. Rozehřívací běhy se vykazují zvlášť, aby je nešlo zaměnit
-se skutečnými ztrátami.
-
-**Náhodné pořadí se seedem.** Proti tepelnému škrcení. Seed se zapisuje do
-každého záznamu, takže pořadí dokončené dávky lze zopakovat.
-
-**Percentily místo minima.** Data to potvrzují: medián rozestupu kolísá mezi
-shodnými běhy o 0,5 %, nejdelší snímek o 59,5 %. Nejdelší snímek je proto
-doprovodná informace, ne metrika, na které stavět závěr.
-
-### Odhad času měření
-
-Přibližně 210 běhů na scénu ≈ 68 minut. Tři scény ≈ 3–4 hodiny na zařízení.
+| měření časování snímků | hotovo |
+| ořez na ustálené okno | hotovo |
+| vytížení procesoru (CDP) | hotovo, režie ověřena |
+| automatický záznam stroje a napájení | hotovo (macOS ověřen na stroji) |
+| testy | 74, ověřené mutacemi |
+| pilotní měření | hotovo — 429 běhů, bez CPU vzorkování |
+| Android | **chybí** — čeká na zařízení k vyzkoušení |
+| sloupec se zařízením v CSV | **chybí** — doplní se s Androidem |
+| závěrečné měření | **čeká** na dokončení aplikace a Androidu |
 
 ---
 
-## Čím se pokračuje
+## Metodická rozhodnutí a jejich doklady
 
-1. **Dokumentace kontraktu** — tento dokument; hotovo.
-2. **Testy** — percentily, odvození rozpočtu a plánování dávky zatím ověřené
-   jednorázově. Potřebují trvalé testy, na které jde odkázat v textu práce.
-3. **Uživatelská dokumentace nástroje** v `docs/`.
+### 1. Měří se ve viditelném okně
 
-Nic z toho neblokuje demo aplikaci.
+Bezhlavý Chromium vykresluje přes SwiftShader, softwarový rasterizér na
+procesoru; ve viditelném okně jede vykreslování přes Metal na grafické kartě.
+Bezhlavý režim navíc `chrome://gpu` vůbec neotevře, takže v něm akceleraci nelze
+ani ověřit. Výhoda kompozitoru, kterou práce zkoumá, by v něm zmizela.
+
+Nástroj před každou dávkou ověří, že Compositing a Rasterization hlásí
+hardwarovou akceleraci, a jinak dávku nespustí.
+
+### 2. Rozpočet snímku se odvozuje z naměřené frekvence
+
+Stránka změří klidový rozestup snímků před během a rozpočet se odvodí z něj.
+Praktický doklad: testovací sestava běžela v srpnu na 75 Hz (rozpočet 13,3 ms)
+a v září po výměně monitoru na 60 Hz (16,7 ms). Nástroj změnu zachytil sám;
+pevná hodnota 16,7 ms by srpnová data tiše zkreslila.
+
+Snímek se počítá jako propadlý až nad 1,5násobkem rozpočtu, aby se mezi propady
+nedostal běžný rozptyl razítek.
+
+### 3. Nástroj měření spouští, stránka jen ohlašuje připravenost
+
+Kontrakt obsahuje `__benchStart`. Stránka po postavení scény ohlásí
+připravenost a čeká; měření spustí nástroj. Bez toho by stránka startovala sama
+a do měřených dat by se míchala stavba scény — což se v aplikaci skutečně dělo,
+dokud se start neoddělil.
+
+### 4. Rozptyl mezi shodnými běhy je řádově menší než rozdíl mezi technikami
+
+Rozhodovací bod před ostrým měřením. Dvacet běhů shodné kombinace na zátěžové
+testovací stránce:
+
+| metrika | variační koeficient |
+|---|---|
+| medián rozestupu snímků | 0,5 % |
+| průměrná frekvence | 5,9 % |
+| 1. percentil frekvence | 29,8 % |
+| nejdelší snímek | 59,5 % |
+
+Rozdíl mezi zatíženou a nezatíženou technikou dal Cohenovo d = 115. Metodika
+obstála. Zároveň z tabulky plyne, že nejdelší snímek je jen doprovodný údaj —
+rozhoduje o něm jediná odlehlá hodnota.
+
+### 5. Metriky se počítají jen z ustáleného okna
+
+Scény rozjíždějí prvky postupně (4 ms na prvek), takže zátěž během běhu roste,
+drží se a zase klesá. Průměr přes celý běh míchá tři různé zátěže a skutečnou
+zátěž podhodnocuje: u `css-transition` při 2000 prvcích vyšlo 20,8 FPS přes celý
+běh, ale 12,4 FPS v ustáleném stavu.
+
+Stránka proto ohlašuje hranice ustáleného okna (`steadyStateFromMs`,
+`steadyStateToMs`) a metriky se počítají jen z něj. Surová razítka zůstávají
+v datech celá.
+
+Bez ořezu by se ztratilo i hlavní zjištění pilotu: podíl zdvojených rozestupů
+u `css-transition` vyšel přes celý běh 20,3 %, v ustáleném okně 50,1 %. Náběh
+půlení snímků rozmazal — proto ho srpnová ověřovací série nezachytila.
+
+### 6. Percentily potřebují dost vzorků
+
+Měřeno proti referenci z celého okna: 95. percentil rozestupů (`p5Fps`) se
+ustálí kolem 75 vzorků, 99. percentil (`p1Fps`) až kolem 300 — při 50 vzorcích
+se odchyloval až o 477 %. Nástroj na nedostatek vzorků upozorní už během dávky;
+běh se nezahazuje, jen se příslušný percentil neinterpretuje.
+
+### 7. Šířka okna 10 / 20 / 20 s a prodleva 15 s
+
+Širší okno dává víc vzorků, ale u techniky na hranici výkonu zvyšuje rozptyl:
+`css-transition` při 2000 prvcích měl variační koeficient 9,8 % s 10s oknem
+a 30,3 % s 30s oknem. Rozptyl přitom sleduje **zátěž**, ne délku běhu — při
+srovnatelném počtu vzorků vyšel 3,9 % u 800 prvků, 7,3 % u 1200 a 17,1 % u 1500.
+
+Původní domněnka o tepelném škrcení se nepotvrdila: pořadí běhů a výkon spolu
+nekorelují (Spearmanovo ρ = −0,21). Příčina vyššího rozptylu u dlouhých běhů
+zůstává neurčená.
+
+### 8. Složitost se nezvyšuje nad 2000 prvků
+
+Nad 2000 prvků se při daném rozjíždění nikdy nehýbou všechny prvky současně —
+při 4000 nejvýš 2500 — a pro percentily by bylo potřeba okno přes 80 s. Techniky
+na stropu displeje se místo toho rozliší měřením na slabších zařízeních.
+
+### 9. Medián se u techniky vynechávající snímky nepoužívá
+
+U techniky, která půlí snímkovou frekvenci, nabývají rozestupy jen dvou hodnot
+(16,7 a 33,3 ms) a medián mezi nimi přeskakuje: u `css-transition` při 2000
+prvcích kolísal mezi běhy o ±7 ms. Spolehlivé jsou podíl dosažené frekvence
+(`refreshRatio`) a podíl snímků nad rozpočtem.
+
+### 10. Vytížení procesoru se vzorkuje po 1000 ms
+
+Čítače času hlavního vlákna a procesů se čtou přes DevTools protokol; stránka
+nespouští žádný kód navíc. Režie ověřena na `css-transition` při 2000 prvcích,
+deset běhů na variantu, prokládaně:
+
+| | vypnuto | 500 ms | 100 ms |
+|---|---|---|---|
+| `refreshRatio` | 0,668 | 0,662 | 0,653 |
+| snímky nad rozpočtem | 48,5 % | 49,8 % | 51,8 % |
+
+Při 500 ms bez průkazného rozdílu (95% interval režie [−0,026; +0,013]), při
+100 ms průkazný posun. Režie tedy existuje a roste s hustotou. Hustší vzorkování
+přitom přesnost nezvyšuje (vytížení 81,7 % při 500 ms, 81,2 % při 100 ms), protože
+čítače jsou kumulativní. Proto 1000 ms; ve výchozím stavu je vzorkování vypnuté.
+
+### 11. Stroj a napájení se zapisují automaticky
+
+Ručně zadané popisky už jednou selhaly: data měřená na 60 Hz nesla popisek
+„75Hz" z dřívější sestavy. Model, procesor, paměť a systém se proto zapisují
+samy a napájení (síť či baterie a stav baterie) se čte před každým během a po
+něm, mimo měřený úsek. Notebooky na baterii omezují výkon, takže napájení je
+podmínka měření, ne detail stroje.
 
 ---
 
-## Poznámky k prostředí měření
+## Pilotní měření (září 2026)
 
-- Demo aplikace musí při měření běžet přes `pnpm preview` nad produkčním buildem,
-  **ne `pnpm dev`**. Dev server drží v hlavním vlákně HMR klienta, což je další
-  skript v měřeném prostředí.
-- Před měřením spustit `animbench check-gpu`. Compositing i Rasterization musí
-  hlásit hardwarovou akceleraci; jinak výsledky nejsou srovnatelné.
-- Playwright spouští Chrome s vlastními přepínači, mimo jiné vypnutým
-  *Direct Rendering Display Compositor*. Pro srovnávání technik mezi sebou to
-  nevadí (prostředí je pro všechny stejné), ale u absolutních čísel to stojí za
-  poznámku v textu práce.
+429 běhů, žádný zahozený; MacBook Air M3, 60 Hz, sedm technik, tři scény,
+deset opakování. **Pilot vznikl bez vzorkování procesoru a bez záznamu
+napájení — závěrečné měření ho nahradí.**
+
+Do 500 prvků jsou všechny techniky nerozeznatelné (`refreshRatio` 1,000). Při
+2000 prvcích:
+
+| technika | grid | composite |
+|---|---|---|
+| gsap | 1,000 | 0,999 |
+| raf | 0,993 | 0,999 |
+| waapi | 0,994 | 0,999 |
+| css-keyframes | 0,999 | 0,997 |
+| motion | 0,961 | 0,996 |
+| **css-transition** | **0,619** | **0,581** |
+
+Scroll-driven animace na scéně parallax drží 0,999 na všech složitostech.
+
+**Hlavní zjištění:** dělicí čára nevede mezi CSS a JavaScriptem — knihovny GSAP
+a Motion jedou stejně jako nativní `requestAnimationFrame` a `css-keyframes`
+také. Propadá jediná technika, `css-transition`, a to pravidelným vynecháváním
+každého druhého snímku (na scéně composite má 73 % rozestupů dvojnásobnou
+délku, medián přesně 33,3 ms), ne postupným zpomalováním.
+
+Ověřeno, že nejde o chybu adaptéru: zapisuje cílovou hodnotu jen pětkrát za běh.
+Kontrolní srovnání ve stejné scéně se 2000 prvky: `css-transition` (8000
+souběžných přechodů) 71 % zdvojených rozestupů, `css-keyframes` 3,7 %, Motion
+3,0 % (přestože zapisuje styl každý snímek), WAAPI 0 %.
+
+Orientační měření procesoru (dva běhy na kombinaci) ukazuje, kde práce vzniká:
+hlavní vlákno vytížené na 81 % u `css-transition` proti 59 % u `raf` a 66 %
+u `css-keyframes`; rozdíl leží celý mimo skript, styly i layout. Čas procesu
+řídícího grafickou kartu je u všech technik stejný.
+
+### Práh
+
+Doplňková série mezi 500 a 2000 prvky (`raf` a `css-transition`):
+
+| prvků | `css-transition` / `raf` — průměrná frekvence | 1. percentil |
+|---|---|---|
+| 800 | 99 % | 93 % |
+| 1200 | 96 % | 81 % |
+| 1500 | 87 % | 48 % |
+| 2000 | 46 % | 39 % |
+
+Percentily varují dřív než průměr: při 1500 prvcích je průměr ještě na 87 %, ale
+nejhorší procento snímků už na 48 %.
+
+---
+
+## Známá omezení
+
+- **Jedno zařízení.** Všechna dosavadní data pocházejí z jednoho stroje, jednoho
+  prohlížeče (Chrome 151) a jednoho grafického rozhraní (Metal).
+- **Kompozitor není vidět.** Čas hlavního vlákna pokrývá jen vlákno stránky.
+- **„CPU čas GPU procesu" není vytížení grafické karty**, jen čas procesoru,
+  který ji řídí. Prohlížeč vytížení GPU nevystavuje.
+- **Spotřeba se neměří.** Rozhraní prohlížečů pro baterii je omezené a systémové
+  měření by mísilo prohlížeč se zbytkem stroje.
+- **Playwright spouští Chrome s vlastními přepínači**, mimo jiné s vypnutým
+  *Direct Rendering Display Compositor*. Srovnání technik to neovlivní, absolutní
+  čísla se ale mohou lišit od běžného prohlížeče.
+- **Záznam napájení na Windows a Linuxu** je ověřený jen na ukázkových výstupech,
+  ne na skutečném stroji.
+
+---
+
+## Co zbývá
+
+1. **Android** — připojení přes `adb`, ověření, co z DevTools protokolu na
+   telefonu funguje, a jeden kompletní běh. Zařízení budou k dispozici jen
+   jednou, takže musí fungovat napoprvé.
+2. **Sloupec se zařízením v CSV**, aby šly sady z více strojů sloučit.
+3. **Závěrečné měření** se vzorkováním procesoru (`cpuSampleIntervalMs: 1000`),
+   na více zařízeních a odděleně na baterii.
