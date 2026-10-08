@@ -185,7 +185,10 @@ async function commandAggregate(
         ? "no valid runs"
         : `fps=${group.metrics.meanFps.mean.toFixed(1)}  ` +
           `p1=${group.metrics.p1Fps.mean.toFixed(1)}  ` +
-          `over=${group.metrics.framesOverBudget.mean.toFixed(1)}`;
+          `over=${group.metrics.framesOverBudget.mean.toFixed(1)}` +
+          (Number.isFinite(group.metrics.mainThreadBusyRatio.mean)
+            ? `  main=${(group.metrics.mainThreadBusyRatio.mean * 100).toFixed(0)}%`
+            : "");
 
     console.log(
       `  ${label}  n=${group.runsValid}  ${summary}` +

@@ -21,6 +21,15 @@ const REPORTED = [
   // Shown so a narrowed measurement is never mistaken for a whole run.
   ["recordedFrameCount", "mean"],
   ["trimmedRatio", "mean"],
+  // Empty when the batch ran without CPU sampling.
+  ["mainThreadBusyRatio", "mean"],
+  ["mainThreadScriptRatio", "mean"],
+  ["mainThreadStyleRatio", "mean"],
+  ["mainThreadLayoutRatio", "mean"],
+  ["mainThreadOtherRatio", "mean"],
+  ["rendererCpuRatio", "mean"],
+  ["gpuProcessCpuRatio", "mean"],
+  ["cpuSampleCount", "mean"],
 ] as const;
 
 function escapeCell(value: string): string {
