@@ -1,5 +1,6 @@
 import type { BenchBaseline, BenchMeta } from "./contract.js";
 import type { Combination } from "./config.js";
+import type { HostInfo, PowerState } from "../diagnostics/host.js";
 
 export type DiscardReason =
   | "warmup"
@@ -23,6 +24,9 @@ export interface RunEnvironment {
    */
   viewport: { width: number; height: number };
   devicePixelRatio: number | null;
+  host?: HostInfo;
+  /** Read just before navigation and just after the run, outside the measurement. */
+  power?: { start: PowerState; end: PowerState };
 }
 
 /**

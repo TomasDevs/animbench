@@ -263,6 +263,12 @@ Důvody zahození:
 | `timeout` | stránka neohlásila připravenost nebo dokončení včas |
 | `navigation-error` | adresu se nepodařilo načíst |
 
+Ke každému běhu se automaticky zapisuje i prostředí: verze prohlížeče, grafický
+renderer, skutečná velikost okna, model a procesor stroje, paměť, operační
+systém a **napájení před a po běhu** (síť či baterie a stav baterie). Napájení
+se čte mimo měřený úsek. `labels` v konfiguraci tak slouží jen k popisu účelu,
+ne k zápisu hardwaru, který by šlo zadat chybně.
+
 `stale-build` obvykle znamená, že server posílá starší sestavení — pomůže
 přebuildovat nebo restartovat.
 

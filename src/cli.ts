@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { evaluateGpuReport, inspectGpu, runGpuCheck } from "./diagnostics/gpu.js";
+import { readHostInfo, readPowerState, type HostInfo, type PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce, withPage } from "./runner/single-run.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
@@ -72,7 +73,9 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
       const timing = sampleCpu
         ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
         : DEFAULT_TIMING;
+      const powerStart = await readPowerState();
       const measured = await measureOnce(page, url, timing);
+      const powerEnd = await readPowerState();
 
       const environment: RunEnvironment = {
         browser: verdict.report.chromeVersion,
@@ -83,6 +86,8 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
           ? { width: measured.viewport.width, height: measured.viewport.height }
           : DEFAULT_BROWSER.viewport,
         devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
+        host: await readHostInfo(),
+        power: { start: powerStart, end: powerEnd },
       };
       return { measured, environment, accelerated: verdict.accelerated };
     });
@@ -197,6 +202,18 @@ async function commandAggregate(
   }
 }
 
+function describeHost(host: HostInfo): string {
+  return [host.model, host.cpu, `${host.cpuCores} cores`, `${host.memoryGb} GB`, host.osVersion]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function describePower(power: PowerState): string {
+  const battery =
+    power.batteryPercent === null ? "" : `, battery ${power.batteryPercent} % (${power.batteryState})`;
+  return `${power.source}${battery}`;
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.round(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -209,6 +226,8 @@ async function commandBatch(configPath: string): Promise<void> {
 
   console.log(`Target:   ${config.target.url}`);
   console.log(`Output:   ${config.output.ndjsonPath}`);
+  console.log(`Machine:  ${describeHost(await readHostInfo())}`);
+  console.log(`Power:    ${describePower(await readPowerState())}`);
   console.log("");
 
   const thinSamples: string[] = [];

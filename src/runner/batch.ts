@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Page } from "playwright";
 import { evaluateGpuReport, inspectGpu } from "../diagnostics/gpu.js";
+import { readHostInfo, readPowerState } from "../diagnostics/host.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
@@ -114,6 +115,7 @@ async function readEnvironment(page: Page, config: BenchConfig): Promise<RunEnvi
     hardwareAccelerated: verdict.accelerated,
     viewport: config.browser.viewport,
     devicePixelRatio: null,
+    host: await readHostInfo(),
   };
 }
 
@@ -150,6 +152,7 @@ export async function runBatch(
           // A crash in one run must not cost the hours of runs still queued, so
           // anything measureOnce did not classify is recorded and the batch
           // continues.
+          const powerStart = await readPowerState();
           let outcome: SingleRunOutcome;
           try {
             outcome = await measureOnce(page, run.url, config.timing);
@@ -170,13 +173,16 @@ export async function runBatch(
               combination: run.combination,
               repetition: run.repetition,
               sequence: index,
-              environment: outcome.ok
-                ? {
-                    ...environment,
-                    viewport: { width: outcome.viewport.width, height: outcome.viewport.height },
-                    devicePixelRatio: outcome.viewport.devicePixelRatio,
-                  }
-                : environment,
+              environment: {
+                ...environment,
+                ...(outcome.ok
+                  ? {
+                      viewport: { width: outcome.viewport.width, height: outcome.viewport.height },
+                      devicePixelRatio: outcome.viewport.devicePixelRatio,
+                    }
+                  : {}),
+                power: { start: powerStart, end: await readPowerState() },
+              },
               warmup: run.warmup,
               ...(config.labels ? { labels: config.labels } : {}),
               recordedAt: new Date().toISOString(),
