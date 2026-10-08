@@ -56,7 +56,7 @@ function resolveTarget(target: string): string {
 }
 
 /** Sampling interval used by `run --cpu`; a batch sets its own in the config. */
-const RUN_CPU_SAMPLE_INTERVAL_MS = 500;
+const RUN_CPU_SAMPLE_INTERVAL_MS = 1000;
 
 async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false): Promise<void> {
   const url = resolveTarget(target);
