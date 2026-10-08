@@ -8,7 +8,8 @@ import {
 } from "../types/contract.js";
 import type { TimingConfig } from "../types/config.js";
 import { DEFAULT_TIMING } from "../types/config.js";
-import type { DiscardReason } from "../types/record.js";
+import type { CpuSample, DiscardReason } from "../types/record.js";
+import { CpuSampler } from "./cpu-sampler.js";
 
 export interface PageViewport {
   width: number;
@@ -20,6 +21,7 @@ export interface SingleRunSuccess {
   ok: true;
   result: BenchResult;
   viewport: PageViewport;
+  cpuSamples?: CpuSample[];
 }
 
 export interface SingleRunFailure {
@@ -136,8 +138,18 @@ export async function measureOnce(
       throw new ContractError(`page reported: ${readyError.message}`, "page-error");
     }
 
-    await startRun(page);
-    await waitForDone(page, timing.runTimeoutMs);
+    const sampler = timing.cpuSampleIntervalMs
+      ? await CpuSampler.attach(page, timing.cpuSampleIntervalMs)
+      : undefined;
+
+    let cpuSamples: CpuSample[] | undefined;
+    try {
+      await sampler?.start();
+      await startRun(page);
+      await waitForDone(page, timing.runTimeoutMs);
+    } finally {
+      cpuSamples = await sampler?.stop().catch(() => undefined);
+    }
 
     const runError = await readPageError(page);
     if (runError) {
@@ -165,7 +177,7 @@ export async function measureOnce(
       height: window.innerHeight,
       devicePixelRatio: window.devicePixelRatio,
     }));
-    return { ok: true, result, viewport };
+    return { ok: true, result, viewport, ...(cpuSamples ? { cpuSamples } : {}) };
   } catch (error) {
     if (error instanceof ContractError) {
       return { ok: false, reason: error.reason, detail: error.message };

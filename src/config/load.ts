@@ -139,6 +139,15 @@ export function parseConfig(raw: unknown, configPath = "."): BenchConfig {
       readyTimeoutMs: parseDuration(timing["readyTimeoutMs"], "timing.readyTimeoutMs", DEFAULT_TIMING.readyTimeoutMs),
       runTimeoutMs: parseDuration(timing["runTimeoutMs"], "timing.runTimeoutMs", DEFAULT_TIMING.runTimeoutMs),
       cooldownMs: parseDuration(timing["cooldownMs"], "timing.cooldownMs", DEFAULT_TIMING.cooldownMs),
+      ...(timing["cpuSampleIntervalMs"] !== undefined
+        ? {
+            cpuSampleIntervalMs: parseDuration(
+              timing["cpuSampleIntervalMs"],
+              "timing.cpuSampleIntervalMs",
+              0,
+            ),
+          }
+        : {}),
     },
     batch: {
       repetitions,
