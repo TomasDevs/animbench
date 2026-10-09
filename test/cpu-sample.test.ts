@@ -31,12 +31,22 @@ test("process CPU time is summed per process type", () => {
     ],
     0,
   );
-  assert.equal(sample.processCpuMs.renderer, 1750);
-  assert.equal(sample.processCpuMs.gpu, 3000);
+  assert.equal(sample.processCpuMs?.renderer, 1750);
+  assert.equal(sample.processCpuMs?.gpu, 3000);
 });
 
 test("a counter missing from the response reads as zero rather than NaN", () => {
   const sample = toCpuSample([{ name: "Timestamp", value: 1 }], [], 0);
   assert.equal(sample.mainThread.taskMs, 0);
-  assert.equal(sample.processCpuMs.gpu, 0);
+});
+
+test("process CPU is unavailable when every renderer reports zero, as on Android", () => {
+  const android = [
+    { type: "browser", cpuTime: 7.3 },
+    { type: "renderer", cpuTime: 0 },
+    { type: "renderer", cpuTime: 0 },
+    { type: "GPU", cpuTime: 0 },
+  ];
+  assert.equal(toCpuSample(metrics, android, 0).processCpuMs, null);
+  assert.equal(toCpuSample(metrics, [], 0).processCpuMs, null);
 });

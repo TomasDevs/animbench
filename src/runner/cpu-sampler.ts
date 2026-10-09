@@ -1,4 +1,5 @@
 import type { CDPSession, Page } from "playwright";
+import { processCpuAvailable } from "../diagnostics/capabilities.js";
 import type { CpuSample } from "../types/record.js";
 
 interface PerformanceMetric {
@@ -33,12 +34,11 @@ export function toCpuSample(
       styleMs: ms("RecalcStyleDuration"),
       layoutMs: ms("LayoutDuration"),
     },
-    processCpuMs: {
-      // Summed because the process list does not say which renderer serves
-      // which page; a batch keeps only the measured page open.
-      renderer: processMs("renderer"),
-      gpu: processMs("GPU"),
-    },
+    // Summed because the process list does not say which renderer serves which
+    // page; a batch keeps only the measured page open.
+    processCpuMs: processCpuAvailable(processes)
+      ? { renderer: processMs("renderer"), gpu: processMs("GPU") }
+      : null,
   };
 }
 

@@ -25,7 +25,7 @@ function makeConfig(overrides: BatchOverrides = {}): BenchConfig {
           : {}
         : { seed: 42 }),
     },
-    browser: { headless: false, viewport: { width: 800, height: 600 }, requireHardwareAcceleration: true },
+    browser: { headless: false, viewport: { width: 800, height: 600 }, requireHardwareAcceleration: true, target: "desktop" },
     output: { ndjsonPath: "out.ndjson" },
   };
 }

@@ -1,28 +1,29 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { evaluateGpuReport, inspectGpu, runGpuCheck } from "./diagnostics/gpu.js";
-import { readHostInfo, readPowerState, type HostInfo, type PowerState } from "./diagnostics/host.js";
+import { readEnvironment } from "./diagnostics/environment.js";
+import { readGpuStatus, type GpuStatus } from "./diagnostics/gpu.js";
+import type { HostInfo, PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
-import { measureOnce, withPage } from "./runner/single-run.js";
+import { measureOnce } from "./runner/single-run.js";
+import { withTarget, type TargetOptions } from "./runner/target.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
 import { aggregateRuns } from "./analysis/aggregate.js";
+import { parseAggregateArgs } from "./cli/aggregate-args.js";
 import { computeRunMetrics } from "./analysis/metrics.js";
 import { ConfigError, loadConfig } from "./config/load.js";
 import { runBatch } from "./runner/batch.js";
 import { writeCsv } from "./output/csv.js";
 import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
-import type { RunEnvironment } from "./types/record.js";
+import type { RunEnvironment, RunRecord } from "./types/record.js";
 
-function printGpuVerdict(verdict: Awaited<ReturnType<typeof runGpuCheck>>): void {
-  const { report, missing, accelerated } = verdict;
+function printGpuStatus(status: GpuStatus): void {
+  const { features, renderer, missing, accelerated } = status;
 
-  console.log("Browser:  ", report.chromeVersion ?? "unknown");
-  console.log("System:   ", report.operatingSystem ?? "unknown");
-  console.log("Renderer: ", report.webglRenderer ?? "unknown");
+  console.log("Renderer: ", renderer ?? "unknown");
   console.log("");
   console.log("Graphics feature status");
-  for (const feature of report.features) {
-    console.log(`  ${feature.hardwareAccelerated ? "[hw]" : "[  ]"} ${feature.name}: ${feature.status}`);
+  for (const [name, value] of Object.entries(features).sort(([a], [b]) => a.localeCompare(b))) {
+    console.log(`  ${/^enabled/.test(value) ? "[on]" : "[  ]"} ${name}: ${value}`);
   }
   console.log("");
 
@@ -59,7 +60,22 @@ function resolveTarget(target: string): string {
 /** Sampling interval used by `run --cpu`; a batch sets its own in the config. */
 const RUN_CPU_SAMPLE_INTERVAL_MS = 1000;
 
-async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false): Promise<void> {
+/** `--android [--serial <id>]` switches a command from this machine to a phone. */
+function targetFromArgs(args: string[]): TargetOptions {
+  const serialIndex = args.indexOf("--serial");
+  const serial = serialIndex === -1 ? undefined : args[serialIndex + 1];
+  return {
+    target: args.includes("--android") ? "android" : "desktop",
+    ...(serial ? { deviceSerial: serial } : {}),
+  };
+}
+
+async function commandRun(
+  target: string,
+  targetOptions: TargetOptions,
+  ndjsonPath?: string,
+  sampleCpu = false,
+): Promise<void> {
   const url = resolveTarget(target);
   const batchId = randomUUID();
   console.log(`Running ${url}`);
@@ -68,28 +84,25 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
   const removeInterruptHandler = writer ? installInterruptHandler(writer) : undefined;
 
   try {
-    const outcome = await withPage({}, async (page) => {
-      const verdict = evaluateGpuReport(await inspectGpu(page));
+    const outcome = await withTarget({ ...targetOptions, appUrl: url }, async (device) => {
+      const { page } = device;
+      const base = await readEnvironment(device, DEFAULT_BROWSER.viewport);
       const timing = sampleCpu
         ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
         : DEFAULT_TIMING;
-      const powerStart = await readPowerState();
+      const powerStart = await device.readPower();
       const measured = await measureOnce(page, url, timing);
-      const powerEnd = await readPowerState();
+      const powerEnd = await device.readPower();
 
       const environment: RunEnvironment = {
-        browser: verdict.report.chromeVersion,
-        operatingSystem: verdict.report.operatingSystem,
-        renderer: verdict.report.webglRenderer,
-        hardwareAccelerated: verdict.accelerated,
+        ...base,
         viewport: measured.ok
           ? { width: measured.viewport.width, height: measured.viewport.height }
           : DEFAULT_BROWSER.viewport,
         devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
-        host: await readHostInfo(),
         power: { start: powerStart, end: powerEnd },
       };
-      return { measured, environment, accelerated: verdict.accelerated };
+      return { measured, environment, accelerated: base.hardwareAccelerated };
     });
 
     if (!outcome.accelerated) {
@@ -99,6 +112,7 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
     const record = buildRunRecord(
       {
         batchId,
+        ...(sampleCpu ? { cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS } : {}),
         url,
         combination: combinationFromUrl(url),
         repetition: 0,
@@ -146,25 +160,33 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
   }
 }
 
+/** Several files merge the devices they were measured on into one table. */
 async function commandAggregate(
-  ndjsonPath: string,
+  ndjsonPaths: string[],
   csvPath: string,
   batchId?: string,
 ): Promise<void> {
-  const { records, malformedLines } = await readNdjson(ndjsonPath);
-
-  if (malformedLines.length > 0) {
-    console.log(`WARNING: ${malformedLines.length} unreadable line(s): ${malformedLines.join(", ")}`);
+  const records: RunRecord[] = [];
+  for (const ndjsonPath of ndjsonPaths) {
+    const read = await readNdjson(ndjsonPath);
+    if (read.malformedLines.length > 0) {
+      console.log(
+        `WARNING: ${ndjsonPath}: ${read.malformedLines.length} unreadable line(s): ` +
+          read.malformedLines.join(", "),
+      );
+    }
+    records.push(...read.records);
   }
+  const sources = ndjsonPaths.join(", ");
   if (records.length === 0) {
-    console.log(`No runs found in ${ndjsonPath}`);
+    console.log(`No runs found in ${sources}`);
     process.exitCode = 1;
     return;
   }
 
   const aggregates = aggregateRuns(records, batchId ? { batchId } : {});
   if (aggregates.length === 0) {
-    console.log(`No runs in ${ndjsonPath} belong to batch ${batchId}`);
+    console.log(`No runs in ${sources} belong to batch ${batchId}`);
     process.exitCode = 1;
     return;
   }
@@ -180,8 +202,13 @@ async function commandAggregate(
   );
   console.log(`${aggregates.length} combination(s) written to ${csvPath}`);
 
+  // Only worth naming the device when the table mixes several.
+  const conditions = new Set(aggregates.map((group) => JSON.stringify(group.device)));
   for (const group of aggregates) {
-    const label = Object.entries(group.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const parameters =
+      Object.entries(group.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const label =
+      conditions.size > 1 ? `[${group.device.model}, ${group.device.power}] ${parameters}` : parameters;
     const discards = Object.entries(group.discardReasons)
       .map(([reason, count]) => `${reason}:${count}`)
       .join(" ");
@@ -209,9 +236,10 @@ function describeHost(host: HostInfo): string {
 }
 
 function describePower(power: PowerState): string {
+  const source = { ac: "mains", battery: "on battery", unknown: "unknown" }[power.source];
   const battery =
     power.batteryPercent === null ? "" : `, battery ${power.batteryPercent} % (${power.batteryState})`;
-  return `${power.source}${battery}`;
+  return `${source}${battery}`;
 }
 
 function formatDuration(ms: number): string {
@@ -226,13 +254,32 @@ async function commandBatch(configPath: string): Promise<void> {
 
   console.log(`Target:   ${config.target.url}`);
   console.log(`Output:   ${config.output.ndjsonPath}`);
-  console.log(`Machine:  ${describeHost(await readHostInfo())}`);
-  console.log(`Power:    ${describePower(await readPowerState())}`);
   console.log("");
 
   const thinSamples: string[] = [];
 
   const summary = await runBatch(config, ({ sequence, total, record }) => {
+    // Read from the first record: on Android the machine and its power are
+    // the phone's, which only the running target knows.
+    const { host, power, capabilities } = record.environment;
+    if (sequence === 0 && host) console.log(`Machine:  ${describeHost(host)}`);
+    if (sequence === 0 && power) console.log(`Power:    ${describePower(power.start)}`);
+    if (sequence === 0) {
+      const awake = record.environment.keepAwake;
+      console.log(
+        awake ? `Sleep:    blocked (${awake})` : "WARNING:  sleep could not be blocked; keep the machine awake by hand",
+      );
+    }
+    if (sequence === 0 && capabilities) {
+      const mark = (available: boolean) => (available ? "yes" : "NO");
+      console.log(
+        `CDP:      GPU status ${mark(capabilities.gpuStatus)}, ` +
+          `main-thread metrics ${mark(capabilities.mainThreadMetrics)}, ` +
+          `process CPU ${mark(capabilities.processCpu)}`,
+      );
+      console.log("");
+    }
+
     const label =
       Object.entries(record.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
     const position = String(sequence + 1).padStart(String(total).length, " ");
@@ -282,7 +329,7 @@ async function commandBatch(configPath: string): Promise<void> {
 
   if (config.output.csvPath) {
     console.log("");
-    await commandAggregate(config.output.ndjsonPath, config.output.csvPath, summary.batchId);
+    await commandAggregate([config.output.ndjsonPath], config.output.csvPath, summary.batchId);
   }
 }
 
@@ -290,8 +337,12 @@ async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
 
   if (command === "check-gpu") {
-    const verdict = await runGpuCheck();
-    printGpuVerdict(verdict);
+    const verdict = await withTarget(targetFromArgs(rest), async ({ page }) => {
+      const browser = page.context().browser();
+      if (!browser) throw new Error("no browser to inspect");
+      return readGpuStatus(browser);
+    });
+    printGpuStatus(verdict);
     if (!verdict.accelerated) process.exitCode = 1;
     return;
   }
@@ -299,7 +350,7 @@ async function main(): Promise<void> {
   if (command === "run") {
     const target = rest[0];
     if (!target) {
-      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>] [--cpu]");
+      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>] [--cpu] [--android [--serial <id>]]");
       process.exitCode = 1;
       return;
     }
@@ -310,25 +361,18 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    await commandRun(target, ndjsonPath, rest.includes("--cpu"));
+    await commandRun(target, targetFromArgs(rest), ndjsonPath, rest.includes("--cpu"));
     return;
   }
 
   if (command === "aggregate") {
-    const [ndjsonPath, csvPath] = rest;
-    if (!ndjsonPath || !csvPath) {
-      console.log("Usage: animbench aggregate <file.ndjson> <file.csv> [--batch <id>]");
+    const parsed = parseAggregateArgs(rest);
+    if (typeof parsed === "string") {
+      console.log(parsed);
       process.exitCode = 1;
       return;
     }
-    const batchIndex = rest.indexOf("--batch");
-    const batchId = batchIndex === -1 ? undefined : rest[batchIndex + 1];
-    if (batchIndex !== -1 && !batchId) {
-      console.log("--batch requires a batch id");
-      process.exitCode = 1;
-      return;
-    }
-    await commandAggregate(ndjsonPath, csvPath, batchId);
+    await commandAggregate(parsed.ndjsonPaths, parsed.csvPath, parsed.batchId);
     return;
   }
 
@@ -347,7 +391,7 @@ async function main(): Promise<void> {
   console.log("  check-gpu                          verify hardware acceleration");
   console.log("  run <url-or-file> [--out <file>] [--cpu]   measure a single run");
   console.log("  batch <config.json>                measure a matrix of combinations");
-  console.log("  aggregate <file.ndjson> <file.csv> [--batch <id>]   summarise recorded runs");
+  console.log("  aggregate <file.ndjson>... <file.csv> [--batch <id>]   summarise recorded runs");
   process.exitCode = 1;
 }
 

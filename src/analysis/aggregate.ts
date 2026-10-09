@@ -1,4 +1,4 @@
-import type { RunRecord } from "../types/record.js";
+import type { CpuSample, RunRecord } from "../types/record.js";
 import { computeRunMetrics, type RunMetrics } from "./metrics.js";
 import { mean, percentile, standardDeviation } from "./statistics.js";
 
@@ -11,7 +11,51 @@ export type AggregatedMetric = {
   max: number;
 };
 
+/**
+ * The machine and power condition a run was measured under. Part of the group
+ * key: runs from different devices, or on mains and on battery, measure
+ * different things and must never be averaged together.
+ */
+export interface DeviceCondition {
+  model: string;
+  cpu: string;
+  os: string;
+  power: "ac" | "battery" | "unknown";
+}
+
+export function deviceConditionOf(record: RunRecord): DeviceCondition {
+  const host = record.environment.host;
+  return {
+    model: host?.model ?? "unknown",
+    cpu: host?.cpu ?? "unknown",
+    os: host?.osVersion ?? record.environment.operatingSystem ?? "unknown",
+    power: record.environment.power?.start.source ?? "unknown",
+  };
+}
+
+/**
+ * The CPU sampling interval of a run, or null when it was not sampled. Records
+ * written before the interval was stored carry only their samples, so the
+ * interval is recovered from their spacing.
+ */
+export function cpuSamplingOf(record: RunRecord): number | null {
+  if (record.cpuSampleIntervalMs) return record.cpuSampleIntervalMs;
+  const samples = record.cpuSamples;
+  if (!samples || samples.length < 3) return null;
+  const gaps = samples
+    .slice(1)
+    .map((sample, index) => sample.t - (samples[index] as CpuSample).t)
+    .sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)] as number;
+  return Math.round(median / 100) * 100;
+}
+
 export interface GroupAggregate {
+  device: DeviceCondition;
+  /** Runs sampled for CPU and runs that were not are never grouped together. */
+  cpuSampleIntervalMs: number | null;
+  /** Lowest and highest charge seen across the group's runs; null off battery data. */
+  batteryPercent: { min: number; max: number } | null;
   /** Parameter values shared by the runs in this group. */
   combination: Record<string, string>;
   /** Values from the page's meta shared across the group, for reference. */
@@ -76,12 +120,25 @@ function aggregateValues(values: number[]): AggregatedMetric {
 }
 
 /** Groups by the parameter combination, the only dimension the tool defines. */
-function groupKey(combination: Record<string, string>): string {
-  return JSON.stringify(
+function groupKey(record: RunRecord): string {
+  const { combination } = record;
+  return JSON.stringify([
+    deviceConditionOf(record),
+    cpuSamplingOf(record),
     Object.keys(combination)
       .sort()
       .map((name) => [name, combination[name]]),
-  );
+  ]);
+}
+
+function batteryRange(records: readonly RunRecord[]): GroupAggregate["batteryPercent"] {
+  const levels = records
+    .flatMap((record) => {
+      const power = record.environment.power;
+      return power ? [power.start.batteryPercent, power.end.batteryPercent] : [];
+    })
+    .filter((level): level is number => level !== null);
+  return levels.length ? { min: Math.min(...levels), max: Math.max(...levels) } : null;
 }
 
 export interface AggregateOptions {
@@ -103,7 +160,7 @@ export function aggregateRuns(
 
   const groups = new Map<string, RunRecord[]>();
   for (const record of selected) {
-    const key = groupKey(record.combination);
+    const key = groupKey(record);
     const existing = groups.get(key);
     if (existing) existing.push(record);
     else groups.set(key, [record]);
@@ -135,8 +192,12 @@ export function aggregateRuns(
       metrics[key] = aggregateValues(runMetrics.map((entry) => entry[key]));
     }
 
+    const first = groupRecords[0] as RunRecord;
     aggregates.push({
-      combination: groupRecords[0]?.combination ?? {},
+      device: deviceConditionOf(first),
+      cpuSampleIntervalMs: cpuSamplingOf(first),
+      batteryPercent: batteryRange(groupRecords),
+      combination: first.combination,
       meta: validRecords[0]?.meta ?? {},
       runsTotal: groupRecords.length,
       runsValid: runMetrics.length,

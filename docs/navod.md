@@ -27,8 +27,8 @@ Vyžaduje Node 20 nebo novější.
 pnpm dev check-gpu
 ```
 
-Vypíše stav grafické akcelerace. **Compositing i Rasterization musí hlásit
-hardwarovou akceleraci**, jinak prohlížeč kreslí na procesoru a výsledky nejsou
+Vypíše stav grafické akcelerace. **`gpu_compositing` i `rasterization` musí
+hlásit `enabled`**, jinak prohlížeč kreslí na procesoru a výsledky nejsou
 srovnatelné. Příkaz končí nenulovým návratovým kódem, když podmínka neplatí,
 takže jde zařadit před měření ve skriptu.
 
@@ -44,7 +44,7 @@ kompozitoru, kterou měření zkoumá.
 animbench check-gpu                                       ověří akceleraci
 animbench run <adresa> [--out <soubor.ndjson>] [--cpu]    jeden běh
 animbench batch <config.json>                             matice kombinací
-animbench aggregate <soubor.ndjson> <soubor.csv> [--batch <id>]   souhrn
+animbench aggregate <soubor.ndjson>... <soubor.csv> [--batch <id>]   souhrn
 ```
 
 Ve vývoji se spouštějí přes `pnpm dev <příkaz>`, po sestavení (`pnpm build`)
@@ -78,6 +78,14 @@ málo vzorků na percentily, upozorní na to už během měření.
 Přerušení klávesami Ctrl+C zapisovač korektně uzavře, takže dosud naměřené běhy
 zůstanou v souboru.
 
+Po celou dobu dávky nástroj brání uspání počítače i displeje (na macOS přes
+`caffeinate`, na Linuxu přes `systemd-inhibit`, na Windows přes
+`SetThreadExecutionState`) a po skončení či přerušení zámek uvolní. Spící stroj
+nekreslí, takže by každý běh až do probuzení skončil časovým limitem. Čím byl
+spánek blokovaný, se zapisuje ke každému běhu; když se zámek nepodaří získat,
+dávka na to na začátku upozorní. Na Linuxu a Windows to zatím nebylo ověřeno na
+skutečném stroji.
+
 ### Souhrn
 
 ```bash
@@ -86,6 +94,19 @@ pnpm dev aggregate results/runs.ndjson results/summary.csv
 
 Dávka s vyplněným `output.csvPath` tohle udělá sama. Samostatně se příkaz hodí
 při přepočtu už naměřených dat — třeba po změně kritérií.
+
+Souborů NDJSON lze zadat víc — typicky jeden z každého zařízení — a souhrn je
+sloučí do jedné tabulky:
+
+```bash
+pnpm dev aggregate mac.ndjson telefon.ndjson results/vse.csv
+```
+
+Běhy z různých zařízení, s různým napájením nebo s různým vzorkováním procesoru
+se přitom nikdy nezprůměrují dohromady: každá kombinace dostane vlastní řádek pro
+každé zařízení, pro provoz v síti i na baterii a pro běhy se vzorkováním i bez
+něj. Díky tomu lze snímky měřit v dávce bez vzorkování a vytížení procesoru
+v samostatné dávce se stejnou maticí, a výsledky obou sloučit do jedné tabulky.
 
 Soubor NDJSON se zapisuje přidáváním na konec, takže může obsahovat víc dávek.
 Přepínač `--batch <id>` omezí souhrn na jednu; bez něj se sečtou všechny, což
@@ -168,6 +189,9 @@ pořadí nešlo zopakovat.
 | `headless` | false | viditelné okno; pro měření nechat vypnuté |
 | `viewport` | 1280 × 720 | velikost okna |
 | `requireHardwareAcceleration` | true | zastavit dávku, když akcelerace neběží |
+| `target` | `desktop` | `android` měří Chrome na telefonu připojeném přes adb |
+| `deviceSerial` | — | který telefon, je-li jich připojeno víc |
+| `adbPath` | hledá se | cesta k `adb`, pokud ho nástroj nenajde sám |
 
 Velikost okna musí být napříč porovnávanými běhy stejná, pokud se scéna
 přizpůsobuje jeho šířce. Nástroj zaznamenává rozměr, který stránka skutečně
@@ -177,6 +201,83 @@ viděla, ne ten z konfigurace.
 
 `ndjsonPath` je povinná, `csvPath` volitelná. `labels` jsou libovolné popisky
 zapsané ke každému běhu — hodí se na označení zařízení nebo účelu měření.
+
+---
+
+## Měření na Androidu
+
+Telefon měření sám neprovede: když na něm jen otevřete adresu, stránka postaví
+scénu a čeká, až ji někdo spustí. Běhy spouští, opakuje a ukládá nástroj na
+počítači, ke kterému je telefon připojený. Nástroj se k Chromu na telefonu
+připojí stejně jako `chrome://inspect` a zpřístupní mu `localhost` počítače,
+takže telefon měří přesně stejné sestavení aplikace jako desktop.
+
+### Předem, na počítači
+
+- nainstalované Android platform-tools (`adb version` odpoví); nástroj hledá
+  `adb` v `ANDROID_HOME`, v obvyklé složce Android SDK, nebo v `browser.adbPath`
+- datový kabel USB — nabíjecí kabely bez datových vodičů telefon nezpřístupní
+- aplikace spuštěná přes `pnpm preview` jako u měření na desktopu
+
+### Příprava telefonu
+
+1. **Vývojářské možnosti:** Nastavení → O telefonu → sedmkrát klepnout na
+   *Číslo sestavení*.
+2. **Ladění USB:** Nastavení → Vývojářské možnosti → zapnout *Ladění USB*.
+3. **Připojit kabel** a na telefonu potvrdit *Povolit ladění USB*, se
+   zaškrtnutým *Vždy povolit z tohoto počítače*.
+4. **Chrome** aktualizovat, jednou otevřít a projít úvodní obrazovky.
+5. **Vypnout spořič baterie** a adaptivní režim výkonu, pokud ho telefon má —
+   omezují výkon a výsledky by nebyly srovnatelné.
+6. **Časový limit obrazovky** nastavit na nejdelší možný. Se zhasnutým displejem
+   Android nekreslí. Nástroj displej kontroluje před každým během, a když
+   zhasne, dávku ukončí s hlášením; dosud naměřené běhy zůstanou uložené.
+7. **Nerušit** zapnout, ať měření nepřeruší oznámení.
+8. **Obnovovací frekvenci displeje** zjistit v nastavení displeje. U telefonů
+   s proměnlivou frekvencí (60/90/120 Hz) ji zapsat do `labels` — nástroj ji
+   změří, ale nastavení telefonu nezná.
+
+### Ověření, pět minut
+
+```bash
+adb devices                                     # telefon ve stavu "device"
+pnpm dev check-gpu --android                    # akcelerace
+pnpm dev run '<adresa>?technique=raf&scene=grid&complexity=500&window=3000&seed=42&mode=bench' --android --cpu
+```
+
+Poslední příkaz musí vypsat počet snímků a vytížení hlavního vlákna. Teprve pak
+spouštět dávku.
+
+### Měření v síti
+
+V konfiguraci dávky stačí `"browser": { "target": "android" }`. Telefon zůstává
+připojený kabelem a nabíjí se; ve výstupu je to `powerSource: ac`.
+
+### Měření na baterii
+
+Kabel USB telefon nabíjí, takže pro měření na baterii se použije **bezdrátové
+ladění** (Android 11 a novější). Telefon i počítač musí být ve stejné síti Wi-Fi.
+
+1. Vývojářské možnosti → *Bezdrátové ladění* → zapnout → *Spárovat zařízení
+   pomocí párovacího kódu*.
+2. Na počítači `adb pair <IP>:<port pro párování>` a zadat kód.
+3. `adb connect <IP>:<port>` (port z hlavní obrazovky bezdrátového ladění).
+4. Odpojit kabel. `adb devices` teď ukazuje zařízení jako `<IP>:<port>`.
+5. Tuto adresu zadat do `browser.deviceSerial`.
+
+Na začátku dávky musí být vidět `Power: on battery`. Bezdrátová cesta zatím
+nebyla ověřena na skutečném telefonu — vyzkoušejte ji při přípravě, ne až při
+měření.
+
+### Co na Androidu chybí
+
+- **CPU čas rendereru a procesu grafiky:** Android ho u izolovaných procesů
+  hlásí jako nulu; v datech je prázdný, ne nulový. Čas hlavního vlákna se měří.
+- **Velikost okna** nejde nastavit; měří se na celé obrazovce telefonu a rozměr
+  se zapíše.
+- **Rok výroby** telefonu nikde vyčíst nejde; zapisuje se do `labels`.
+
+Po skončení vypněte na telefonu ladění USB i bezdrátové ladění.
 
 ---
 
@@ -274,8 +375,15 @@ přebuildovat nebo restartovat.
 
 ### CSV
 
-Jeden řádek na kombinaci. První sloupce jsou parametry matice, pak počty běhů
-a metriky.
+Jeden řádek na kombinaci a zařízení. První sloupce popisují podmínky měření,
+pak následují parametry matice, počty běhů a metriky.
+
+| sloupec | význam |
+|---|---|
+| `deviceModel`, `deviceCpu`, `deviceOs` | zařízení, na kterém se měřilo |
+| `powerSource` | `ac` (síť), `battery`, nebo `unknown` |
+| `batteryMin`, `batteryMax` | rozsah nabití baterie během běhů skupiny |
+| `cpuSampleIntervalMs` | interval vzorkování procesoru; prázdné, když se nevzorkovalo |
 
 | sloupec | význam |
 |---|---|

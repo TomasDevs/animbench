@@ -57,6 +57,15 @@ export function buildCsv(aggregates: readonly GroupAggregate[]): string {
   const parameterNames = collectParameterNames(aggregates);
 
   const header = [
+    // The measuring device and its power come first: they say which
+    // conditions a row describes, before any parameter does.
+    "deviceModel",
+    "deviceCpu",
+    "deviceOs",
+    "powerSource",
+    "batteryMin",
+    "batteryMax",
+    "cpuSampleIntervalMs",
     ...parameterNames,
     "runsValid",
     "runsDiscarded",
@@ -76,6 +85,13 @@ export function buildCsv(aggregates: readonly GroupAggregate[]): string {
       .join(" ");
 
     return [
+      aggregate.device.model,
+      aggregate.device.cpu,
+      aggregate.device.os,
+      aggregate.device.power,
+      aggregate.batteryPercent ? String(aggregate.batteryPercent.min) : "",
+      aggregate.batteryPercent ? String(aggregate.batteryPercent.max) : "",
+      aggregate.cpuSampleIntervalMs === null ? "" : String(aggregate.cpuSampleIntervalMs),
       ...parameterNames.map((name) => aggregate.combination[name] ?? ""),
       String(aggregate.runsValid),
       String(aggregate.runsDiscarded),

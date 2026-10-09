@@ -62,8 +62,10 @@ test("columns are derived from the data, not a fixed list", () => {
   const csv = buildCsv(aggregateRuns([makeRecord({ technique: "raf", scene: "grid" })]));
   const [header] = parseCsv(csv);
   assert.ok(header);
-  assert.equal(header[0], "scene", "parameter columns come first, sorted");
-  assert.equal(header[1], "technique");
+  assert.deepEqual(header.slice(0, 4), ["deviceModel", "deviceCpu", "deviceOs", "powerSource"]);
+  const scene = header.indexOf("scene");
+  assert.ok(scene > 0, "parameter columns follow the device");
+  assert.equal(header[scene + 1], "technique", "parameter columns are sorted");
   assert.ok(header.includes("meanFps_mean"));
   assert.ok(header.includes("runsWarmup"));
 });
@@ -85,7 +87,7 @@ test("every row has exactly as many fields as the header", () => {
 test("values containing separators survive a round trip", () => {
   const csv = buildCsv(aggregateRuns([makeRecord({ label: 'a,b "quoted"' })]));
   const rows = parseCsv(csv);
-  assert.equal(rows[1]?.[0], 'a,b "quoted"');
+  assert.equal(rows[1]?.[rows[0]!.indexOf("label")], 'a,b "quoted"');
 });
 
 test("page-reported meta never reaches the CSV", () => {

@@ -32,8 +32,8 @@ const COUNTERS = {
   script: (sample) => sample.mainThread.scriptMs,
   style: (sample) => sample.mainThread.styleMs,
   layout: (sample) => sample.mainThread.layoutMs,
-  renderer: (sample) => sample.processCpuMs.renderer,
-  gpu: (sample) => sample.processCpuMs.gpu,
+  renderer: (sample) => sample.processCpuMs?.renderer ?? Number.NaN,
+  gpu: (sample) => sample.processCpuMs?.gpu ?? Number.NaN,
 } satisfies Record<string, Counter>;
 
 /**

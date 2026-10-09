@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { Page } from "playwright";
-import { evaluateGpuReport, inspectGpu } from "../diagnostics/gpu.js";
-import { readHostInfo, readPowerState } from "../diagnostics/host.js";
+import { readEnvironment } from "../diagnostics/environment.js";
+import { keepAwake } from "../diagnostics/keep-awake.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
 import { buildRunRecord } from "./build-record.js";
-import { measureOnce, withPage, type SingleRunOutcome } from "./single-run.js";
+import { measureOnce, type SingleRunOutcome } from "./single-run.js";
+import { withTarget } from "./target.js";
 
 /**
  * Errors that mean the browser itself is gone: retrying every remaining run
@@ -106,19 +106,6 @@ export interface BatchSummary {
   abortedAfter?: { sequence: number; error: string };
 }
 
-async function readEnvironment(page: Page, config: BenchConfig): Promise<RunEnvironment> {
-  const verdict = evaluateGpuReport(await inspectGpu(page));
-  return {
-    browser: verdict.report.chromeVersion,
-    operatingSystem: verdict.report.operatingSystem,
-    renderer: verdict.report.webglRenderer,
-    hardwareAccelerated: verdict.accelerated,
-    viewport: config.browser.viewport,
-    devicePixelRatio: null,
-    host: await readHostInfo(),
-  };
-}
-
 export async function runBatch(
   config: BenchConfig,
   onProgress?: (progress: BatchProgress) => void,
@@ -127,6 +114,7 @@ export async function runBatch(
   const { runs: planned, seed } = planBatch(config);
   const writer = new NdjsonWriter(config.output.ndjsonPath);
   const removeInterruptHandler = installInterruptHandler(writer);
+  const awake = await keepAwake();
 
   const discardReasons: Record<string, number> = {};
   let valid = 0;
@@ -135,10 +123,14 @@ export async function runBatch(
   let abortedAfter: { sequence: number; error: string } | undefined;
 
   try {
-    const environment = await withPage(
-      { headless: config.browser.headless, viewport: config.browser.viewport },
-      async (page) => {
-        const environment = await readEnvironment(page, config);
+    const environment = await withTarget(
+      { ...config.browser, appUrl: config.target.url },
+      async (target) => {
+        const { page } = target;
+        const environment = {
+          ...(await readEnvironment(target, config.browser.viewport)),
+          keepAwake: awake.method,
+        };
 
         if (config.browser.requireHardwareAcceleration && !environment.hardwareAccelerated) {
           throw new Error(
@@ -152,7 +144,14 @@ export async function runBatch(
           // A crash in one run must not cost the hours of runs still queued, so
           // anything measureOnce did not classify is recorded and the batch
           // continues.
-          const powerStart = await readPowerState();
+          try {
+            await target.assertReady();
+          } catch (error) {
+            abortedAfter = { sequence: index, error: error instanceof Error ? error.message : String(error) };
+            break;
+          }
+
+          const powerStart = await target.readPower();
           let outcome: SingleRunOutcome;
           try {
             outcome = await measureOnce(page, run.url, config.timing);
@@ -169,6 +168,9 @@ export async function runBatch(
             {
               batchId,
               ...(seed !== undefined ? { batchSeed: seed } : {}),
+              ...(config.timing.cpuSampleIntervalMs
+                ? { cpuSampleIntervalMs: config.timing.cpuSampleIntervalMs }
+                : {}),
               url: run.url,
               combination: run.combination,
               repetition: run.repetition,
@@ -181,7 +183,7 @@ export async function runBatch(
                       devicePixelRatio: outcome.viewport.devicePixelRatio,
                     }
                   : {}),
-                power: { start: powerStart, end: await readPowerState() },
+                power: { start: powerStart, end: await target.readPower() },
               },
               warmup: run.warmup,
               ...(config.labels ? { labels: config.labels } : {}),
@@ -224,6 +226,7 @@ export async function runBatch(
       ...(abortedAfter ? { abortedAfter } : {}),
     };
   } finally {
+    awake.release();
     removeInterruptHandler();
     await writer.close();
   }

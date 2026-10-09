@@ -26,9 +26,9 @@ pnpm exec playwright install chromium
 
 ```bash
 pnpm dev check-gpu                          # verify hardware acceleration
-pnpm dev run <url> [--out runs.ndjson] [--cpu]
+pnpm dev run <url> [--out runs.ndjson] [--cpu] [--android]
 pnpm dev batch config.json                  # full parameter matrix
-pnpm dev aggregate runs.ndjson summary.csv [--batch <id>]
+pnpm dev aggregate runs.ndjson... summary.csv [--batch <id>]
 ```
 
 A batch is driven by a JSON config:
@@ -44,6 +44,10 @@ A batch is driven by a JSON config:
   "output": { "ndjsonPath": "results/runs.ndjson", "csvPath": "results/summary.csv" }
 }
 ```
+
+Setting `"browser": { "target": "android" }` measures Chrome on a phone
+connected over adb instead; the phone reaches the app on this machine's
+`localhost`.
 
 The matrix expands into every combination; values are passed to the page as
 query parameters and recorded with each run. Runs are shuffled with a recorded
@@ -70,7 +74,8 @@ metrics are then computed from that window only.
 
 - **NDJSON** — one line per run with raw timestamps, CPU samples, the machine,
   its power state and, for discarded runs, the reason.
-- **CSV** — one row per combination: frame-interval percentiles, frames over
+- **CSV** — one row per combination and device, merging any number of NDJSON
+  files: frame-interval percentiles, frames over
   budget, achieved vs. achievable refresh rate, and main-thread and process CPU
   shares.
 

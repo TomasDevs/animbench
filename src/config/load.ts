@@ -98,6 +98,21 @@ function parseLabels(value: unknown): Record<string, string> | undefined {
   return labels;
 }
 
+function parseTarget(value: unknown): "desktop" | "android" {
+  if (value === undefined) return DEFAULT_BROWSER.target;
+  if (value === "desktop" || value === "android") return value;
+  throw new ConfigError(`browser.target must be "desktop" or "android"`);
+}
+
+function optionalString(source: Record<string, unknown>, key: string): Record<string, string> {
+  const value = source[key];
+  if (value === undefined) return {};
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ConfigError(`browser.${key} must be a non-empty string`);
+  }
+  return { [key]: value };
+}
+
 export function parseConfig(raw: unknown, configPath = "."): BenchConfig {
   const root = asRecord(raw, "config");
 
@@ -166,6 +181,9 @@ export function parseConfig(raw: unknown, configPath = "."): BenchConfig {
         "browser.requireHardwareAcceleration",
         DEFAULT_BROWSER.requireHardwareAcceleration,
       ),
+      target: parseTarget(browser["target"]),
+      ...optionalString(browser, "deviceSerial"),
+      ...optionalString(browser, "adbPath"),
     },
     output: { ndjsonPath, ...(csvPath !== undefined ? { csvPath } : {}) },
     ...(labels ? { labels } : {}),

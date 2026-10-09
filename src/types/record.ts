@@ -1,5 +1,6 @@
 import type { BenchBaseline, BenchMeta } from "./contract.js";
 import type { Combination } from "./config.js";
+import type { Capabilities } from "../diagnostics/capabilities.js";
 import type { HostInfo, PowerState } from "../diagnostics/host.js";
 
 export type DiscardReason =
@@ -25,6 +26,9 @@ export interface RunEnvironment {
   viewport: { width: number; height: number };
   devicePixelRatio: number | null;
   host?: HostInfo;
+  capabilities?: Capabilities;
+  /** What kept the machine from sleeping during the batch; null if nothing could. */
+  keepAwake?: string | null;
   /** Read just before navigation and just after the run, outside the measurement. */
   power?: { start: PowerState; end: PowerState };
 }
@@ -46,12 +50,13 @@ export interface CpuSample {
   };
   /**
    * CPU time per browser process, in milliseconds. The GPU process figure is
-   * processor time spent driving the GPU, not GPU utilisation.
+   * processor time spent driving the GPU, not GPU utilisation. Null where the
+   * platform hides it, as Android does for its sandboxed processes.
    */
   processCpuMs: {
     renderer: number;
     gpu: number;
-  };
+  } | null;
 }
 
 /**
@@ -89,6 +94,12 @@ export interface RunRecord {
   endTime?: number;
   overflowed?: boolean;
   cpuSamples?: CpuSample[];
+  /**
+   * Set whenever the run was configured to sample CPU, failed runs included.
+   * Sampling has a small cost on loaded techniques, so sampled and unsampled
+   * runs are kept apart during aggregation.
+   */
+  cpuSampleIntervalMs?: number;
 
   environment: RunEnvironment;
   labels?: Record<string, string>;

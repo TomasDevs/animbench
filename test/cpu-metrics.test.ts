@@ -60,3 +60,11 @@ test("a span the samples do not cover is reported as unavailable", () => {
   assert.ok(Number.isNaN(computeCpuMetrics(samples.slice(0, 1), 0, 0).mainThreadBusyRatio));
   assert.equal(computeCpuMetrics(undefined, 0, 1_000).cpuSampleCount, 0);
 });
+
+test("hidden process CPU yields empty process shares but keeps the main thread", () => {
+  const samples = samplesAt(0.6).map((sample) => ({ ...sample, processCpuMs: null }));
+  const metrics = computeCpuMetrics(samples, 1_000, 9_000);
+  near(metrics.mainThreadBusyRatio, 0.6);
+  assert.ok(Number.isNaN(metrics.rendererCpuRatio));
+  assert.ok(Number.isNaN(metrics.gpuProcessCpuRatio));
+});
