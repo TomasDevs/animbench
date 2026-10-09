@@ -168,6 +168,9 @@ export async function runBatch(
             {
               batchId,
               ...(seed !== undefined ? { batchSeed: seed } : {}),
+              ...(config.timing.cpuSampleIntervalMs
+                ? { cpuSampleIntervalMs: config.timing.cpuSampleIntervalMs }
+                : {}),
               url: run.url,
               combination: run.combination,
               repetition: run.repetition,

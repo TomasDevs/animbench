@@ -102,9 +102,11 @@ sloučí do jedné tabulky:
 pnpm dev aggregate mac.ndjson telefon.ndjson results/vse.csv
 ```
 
-Běhy z různých zařízení nebo s různým napájením se přitom nikdy nezprůměrují
-dohromady: každá kombinace dostane vlastní řádek pro každé zařízení a pro provoz
-v síti i na baterii zvlášť.
+Běhy z různých zařízení, s různým napájením nebo s různým vzorkováním procesoru
+se přitom nikdy nezprůměrují dohromady: každá kombinace dostane vlastní řádek pro
+každé zařízení, pro provoz v síti i na baterii a pro běhy se vzorkováním i bez
+něj. Díky tomu lze snímky měřit v dávce bez vzorkování a vytížení procesoru
+v samostatné dávce se stejnou maticí, a výsledky obou sloučit do jedné tabulky.
 
 Soubor NDJSON se zapisuje přidáváním na konec, takže může obsahovat víc dávek.
 Přepínač `--batch <id>` omezí souhrn na jednu; bez něj se sečtou všechny, což
@@ -381,6 +383,7 @@ pak následují parametry matice, počty běhů a metriky.
 | `deviceModel`, `deviceCpu`, `deviceOs` | zařízení, na kterém se měřilo |
 | `powerSource` | `ac` (síť), `battery`, nebo `unknown` |
 | `batteryMin`, `batteryMax` | rozsah nabití baterie během běhů skupiny |
+| `cpuSampleIntervalMs` | interval vzorkování procesoru; prázdné, když se nevzorkovalo |
 
 | sloupec | význam |
 |---|---|

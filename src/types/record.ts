@@ -94,6 +94,12 @@ export interface RunRecord {
   endTime?: number;
   overflowed?: boolean;
   cpuSamples?: CpuSample[];
+  /**
+   * Set whenever the run was configured to sample CPU, failed runs included.
+   * Sampling has a small cost on loaded techniques, so sampled and unsampled
+   * runs are kept apart during aggregation.
+   */
+  cpuSampleIntervalMs?: number;
 
   environment: RunEnvironment;
   labels?: Record<string, string>;

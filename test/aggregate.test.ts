@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aggregateRuns } from "../src/analysis/aggregate.js";
+import { aggregateRuns, cpuSamplingOf } from "../src/analysis/aggregate.js";
 import type { DiscardReason, RunRecord } from "../src/types/record.js";
 
 interface Options {
@@ -162,4 +162,39 @@ test("records predating the host field still aggregate, under an unknown device"
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.device.model, "unknown");
   assert.equal(groups[0]?.device.power, "unknown");
+});
+
+function sampledEvery(record: RunRecord, intervalMs: number, recordInterval: boolean): RunRecord {
+  const cpuSamples = Array.from({ length: 12 }, (_, index) => ({
+    t: index * intervalMs + (index % 2) * 7, // a little jitter, as in real samples
+    mainThread: { taskMs: 0, scriptMs: 0, styleMs: 0, layoutMs: 0 },
+    processCpuMs: null,
+  }));
+  return { ...record, cpuSamples, ...(recordInterval ? { cpuSampleIntervalMs: intervalMs } : {}) };
+}
+
+test("sampled and unsampled runs of one combination are kept apart", () => {
+  const groups = aggregateRuns([
+    makeRecord(),
+    makeRecord(),
+    sampledEvery(makeRecord(), 1000, true),
+  ]);
+  assert.equal(groups.length, 2);
+  assert.equal(groups.find((g) => g.cpuSampleIntervalMs === null)?.runsValid, 2);
+  assert.equal(groups.find((g) => g.cpuSampleIntervalMs === 1000)?.runsValid, 1);
+});
+
+test("the interval of older records is recovered from sample spacing", () => {
+  assert.equal(cpuSamplingOf(sampledEvery(makeRecord(), 1000, false)), 1000);
+  assert.equal(cpuSamplingOf(sampledEvery(makeRecord(), 500, false)), 500);
+  assert.equal(cpuSamplingOf(makeRecord()), null);
+});
+
+test("a failed run of a sampled batch stays with the sampled runs", () => {
+  const failed = { ...makeRecord({ valid: false, discardReason: "timeout" }), cpuSampleIntervalMs: 1000 };
+  delete failed.timestamps;
+  const groups = aggregateRuns([sampledEvery(makeRecord(), 1000, true), failed, makeRecord()]);
+  const sampled = groups.find((g) => g.cpuSampleIntervalMs === 1000);
+  assert.deepEqual(sampled?.discardReasons, { timeout: 1 });
+  assert.deepEqual(groups.find((g) => g.cpuSampleIntervalMs === null)?.discardReasons, {});
 });

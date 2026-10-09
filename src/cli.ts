@@ -112,6 +112,7 @@ async function commandRun(
     const record = buildRunRecord(
       {
         batchId,
+        ...(sampleCpu ? { cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS } : {}),
         url,
         combination: combinationFromUrl(url),
         repetition: 0,

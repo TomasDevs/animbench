@@ -5,6 +5,7 @@ import type { SingleRunOutcome } from "./single-run.js";
 
 export interface RecordContext {
   batchId: string;
+  cpuSampleIntervalMs?: number;
   batchSeed?: number;
   url: string;
   combination: Combination;
@@ -36,6 +37,7 @@ export function buildRunRecord(
   };
 
   if (context.labels) record.labels = context.labels;
+  if (context.cpuSampleIntervalMs) record.cpuSampleIntervalMs = context.cpuSampleIntervalMs;
 
   if (!outcome.ok) {
     record.discardReason = outcome.reason;

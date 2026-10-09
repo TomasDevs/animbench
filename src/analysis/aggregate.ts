@@ -1,4 +1,4 @@
-import type { RunRecord } from "../types/record.js";
+import type { CpuSample, RunRecord } from "../types/record.js";
 import { computeRunMetrics, type RunMetrics } from "./metrics.js";
 import { mean, percentile, standardDeviation } from "./statistics.js";
 
@@ -33,8 +33,27 @@ export function deviceConditionOf(record: RunRecord): DeviceCondition {
   };
 }
 
+/**
+ * The CPU sampling interval of a run, or null when it was not sampled. Records
+ * written before the interval was stored carry only their samples, so the
+ * interval is recovered from their spacing.
+ */
+export function cpuSamplingOf(record: RunRecord): number | null {
+  if (record.cpuSampleIntervalMs) return record.cpuSampleIntervalMs;
+  const samples = record.cpuSamples;
+  if (!samples || samples.length < 3) return null;
+  const gaps = samples
+    .slice(1)
+    .map((sample, index) => sample.t - (samples[index] as CpuSample).t)
+    .sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)] as number;
+  return Math.round(median / 100) * 100;
+}
+
 export interface GroupAggregate {
   device: DeviceCondition;
+  /** Runs sampled for CPU and runs that were not are never grouped together. */
+  cpuSampleIntervalMs: number | null;
   /** Lowest and highest charge seen across the group's runs; null off battery data. */
   batteryPercent: { min: number; max: number } | null;
   /** Parameter values shared by the runs in this group. */
@@ -105,6 +124,7 @@ function groupKey(record: RunRecord): string {
   const { combination } = record;
   return JSON.stringify([
     deviceConditionOf(record),
+    cpuSamplingOf(record),
     Object.keys(combination)
       .sort()
       .map((name) => [name, combination[name]]),
@@ -175,6 +195,7 @@ export function aggregateRuns(
     const first = groupRecords[0] as RunRecord;
     aggregates.push({
       device: deviceConditionOf(first),
+      cpuSampleIntervalMs: cpuSamplingOf(first),
       batteryPercent: batteryRange(groupRecords),
       combination: first.combination,
       meta: validRecords[0]?.meta ?? {},
