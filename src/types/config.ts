@@ -41,6 +41,11 @@ export interface BrowserConfig {
   headless: boolean;
   viewport: { width: number; height: number };
   requireHardwareAcceleration: boolean;
+  /** Android drives Chrome on a phone connected over adb. */
+  target: "desktop" | "android";
+  /** Required only when more than one phone is connected. */
+  deviceSerial?: string;
+  adbPath?: string;
 }
 
 export interface OutputConfig {
@@ -74,6 +79,7 @@ export const DEFAULT_BROWSER: BrowserConfig = {
   headless: false,
   viewport: { width: 1280, height: 720 },
   requireHardwareAcceleration: true,
+  target: "desktop",
 };
 
 export function expandMatrix(matrix: ParameterMatrix): Combination[] {

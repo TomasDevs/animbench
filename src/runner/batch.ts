@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { readEnvironment } from "../diagnostics/environment.js";
-import { readPowerState } from "../diagnostics/host.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
 import { buildRunRecord } from "./build-record.js";
-import { measureOnce, withPage, type SingleRunOutcome } from "./single-run.js";
+import { measureOnce, type SingleRunOutcome } from "./single-run.js";
+import { withTarget } from "./target.js";
 
 /**
  * Errors that mean the browser itself is gone: retrying every remaining run
@@ -121,10 +121,11 @@ export async function runBatch(
   let abortedAfter: { sequence: number; error: string } | undefined;
 
   try {
-    const environment = await withPage(
-      { headless: config.browser.headless, viewport: config.browser.viewport },
-      async (page) => {
-        const environment = await readEnvironment(page, config.browser.viewport);
+    const environment = await withTarget(
+      { ...config.browser, appUrl: config.target.url },
+      async (target) => {
+        const { page } = target;
+        const environment = await readEnvironment(target, config.browser.viewport);
 
         if (config.browser.requireHardwareAcceleration && !environment.hardwareAccelerated) {
           throw new Error(
@@ -138,7 +139,7 @@ export async function runBatch(
           // A crash in one run must not cost the hours of runs still queued, so
           // anything measureOnce did not classify is recorded and the batch
           // continues.
-          const powerStart = await readPowerState();
+          const powerStart = await target.readPower();
           let outcome: SingleRunOutcome;
           try {
             outcome = await measureOnce(page, run.url, config.timing);
@@ -167,7 +168,7 @@ export async function runBatch(
                       devicePixelRatio: outcome.viewport.devicePixelRatio,
                     }
                   : {}),
-                power: { start: powerStart, end: await readPowerState() },
+                power: { start: powerStart, end: await target.readPower() },
               },
               warmup: run.warmup,
               ...(config.labels ? { labels: config.labels } : {}),

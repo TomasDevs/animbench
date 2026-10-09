@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readEnvironment } from "./diagnostics/environment.js";
-import { runGpuCheck, type GpuStatus } from "./diagnostics/gpu.js";
-import { readHostInfo, readPowerState, type HostInfo, type PowerState } from "./diagnostics/host.js";
+import { readGpuStatus, type GpuStatus } from "./diagnostics/gpu.js";
+import type { HostInfo, PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
-import { measureOnce, withPage } from "./runner/single-run.js";
+import { measureOnce } from "./runner/single-run.js";
+import { withTarget, type TargetOptions } from "./runner/target.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
 import { aggregateRuns } from "./analysis/aggregate.js";
 import { computeRunMetrics } from "./analysis/metrics.js";
@@ -58,7 +59,22 @@ function resolveTarget(target: string): string {
 /** Sampling interval used by `run --cpu`; a batch sets its own in the config. */
 const RUN_CPU_SAMPLE_INTERVAL_MS = 1000;
 
-async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false): Promise<void> {
+/** `--android [--serial <id>]` switches a command from this machine to a phone. */
+function targetFromArgs(args: string[]): TargetOptions {
+  const serialIndex = args.indexOf("--serial");
+  const serial = serialIndex === -1 ? undefined : args[serialIndex + 1];
+  return {
+    target: args.includes("--android") ? "android" : "desktop",
+    ...(serial ? { deviceSerial: serial } : {}),
+  };
+}
+
+async function commandRun(
+  target: string,
+  targetOptions: TargetOptions,
+  ndjsonPath?: string,
+  sampleCpu = false,
+): Promise<void> {
   const url = resolveTarget(target);
   const batchId = randomUUID();
   console.log(`Running ${url}`);
@@ -67,14 +83,15 @@ async function commandRun(target: string, ndjsonPath?: string, sampleCpu = false
   const removeInterruptHandler = writer ? installInterruptHandler(writer) : undefined;
 
   try {
-    const outcome = await withPage({}, async (page) => {
-      const base = await readEnvironment(page, DEFAULT_BROWSER.viewport);
+    const outcome = await withTarget({ ...targetOptions, appUrl: url }, async (device) => {
+      const { page } = device;
+      const base = await readEnvironment(device, DEFAULT_BROWSER.viewport);
       const timing = sampleCpu
         ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
         : DEFAULT_TIMING;
-      const powerStart = await readPowerState();
+      const powerStart = await device.readPower();
       const measured = await measureOnce(page, url, timing);
-      const powerEnd = await readPowerState();
+      const powerEnd = await device.readPower();
 
       const environment: RunEnvironment = {
         ...base,
@@ -204,9 +221,10 @@ function describeHost(host: HostInfo): string {
 }
 
 function describePower(power: PowerState): string {
+  const source = { ac: "mains", battery: "on battery", unknown: "unknown" }[power.source];
   const battery =
     power.batteryPercent === null ? "" : `, battery ${power.batteryPercent} % (${power.batteryState})`;
-  return `${power.source}${battery}`;
+  return `${source}${battery}`;
 }
 
 function formatDuration(ms: number): string {
@@ -221,14 +239,16 @@ async function commandBatch(configPath: string): Promise<void> {
 
   console.log(`Target:   ${config.target.url}`);
   console.log(`Output:   ${config.output.ndjsonPath}`);
-  console.log(`Machine:  ${describeHost(await readHostInfo())}`);
-  console.log(`Power:    ${describePower(await readPowerState())}`);
   console.log("");
 
   const thinSamples: string[] = [];
 
   const summary = await runBatch(config, ({ sequence, total, record }) => {
-    const capabilities = record.environment.capabilities;
+    // Read from the first record: on Android the machine and its power are
+    // the phone's, which only the running target knows.
+    const { host, power, capabilities } = record.environment;
+    if (sequence === 0 && host) console.log(`Machine:  ${describeHost(host)}`);
+    if (sequence === 0 && power) console.log(`Power:    ${describePower(power.start)}`);
     if (sequence === 0 && capabilities) {
       const mark = (available: boolean) => (available ? "yes" : "NO");
       console.log(
@@ -296,7 +316,11 @@ async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
 
   if (command === "check-gpu") {
-    const verdict = await runGpuCheck();
+    const verdict = await withTarget(targetFromArgs(rest), async ({ page }) => {
+      const browser = page.context().browser();
+      if (!browser) throw new Error("no browser to inspect");
+      return readGpuStatus(browser);
+    });
     printGpuStatus(verdict);
     if (!verdict.accelerated) process.exitCode = 1;
     return;
@@ -305,7 +329,7 @@ async function main(): Promise<void> {
   if (command === "run") {
     const target = rest[0];
     if (!target) {
-      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>] [--cpu]");
+      console.log("Usage: animbench run <url-or-file> [--out <file.ndjson>] [--cpu] [--android [--serial <id>]]");
       process.exitCode = 1;
       return;
     }
@@ -316,7 +340,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    await commandRun(target, ndjsonPath, rest.includes("--cpu"));
+    await commandRun(target, targetFromArgs(rest), ndjsonPath, rest.includes("--cpu"));
     return;
   }
 

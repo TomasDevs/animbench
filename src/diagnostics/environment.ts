@@ -1,18 +1,18 @@
-import type { Page } from "playwright";
+import type { MeasurementTarget } from "../runner/target.js";
 import type { RunEnvironment } from "../types/record.js";
 import { probeCapabilities } from "./capabilities.js";
 import { readGpuStatus } from "./gpu.js";
-import { readHostInfo } from "./host.js";
 
 /** Read once, before any run; per-run fields are filled in by the caller. */
 export async function readEnvironment(
-  page: Page,
+  target: MeasurementTarget,
   viewport: { width: number; height: number },
 ): Promise<RunEnvironment> {
+  const { page } = target;
   const browser = page.context().browser();
   if (!browser) throw new Error("the measured page has no browser to inspect");
   const gpu = await readGpuStatus(browser);
-  const host = await readHostInfo();
+  const host = await target.readHost();
   return {
     browser: browser.version(),
     operatingSystem: host.osVersion,

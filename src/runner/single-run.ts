@@ -1,5 +1,4 @@
-import type { Browser, Page } from "playwright";
-import { chromium } from "playwright";
+import type { Page } from "playwright";
 import {
   CONTRACT_KEYS,
   validateBenchResult,
@@ -183,27 +182,5 @@ export async function measureOnce(
       return { ok: false, reason: error.reason, detail: error.message };
     }
     throw error;
-  }
-}
-
-export interface OpenBrowserOptions {
-  headless?: boolean;
-  viewport?: { width: number; height: number };
-}
-
-export async function withPage<T>(
-  options: OpenBrowserOptions,
-  body: (page: Page) => Promise<T>,
-): Promise<T> {
-  let browser: Browser | undefined;
-  try {
-    browser = await chromium.launch({ headless: options.headless ?? false });
-    const context = await browser.newContext({
-      viewport: options.viewport ?? { width: 1280, height: 720 },
-    });
-    const page = await context.newPage();
-    return await body(page);
-  } finally {
-    await browser?.close();
   }
 }

@@ -86,3 +86,12 @@ test("CPU sampling stays off unless the config asks for it", () => {
   );
   rejects({ ...minimal, timing: { cpuSampleIntervalMs: -1 } }, "cannot be negative");
 });
+
+test("the measurement target defaults to this machine and accepts Android", () => {
+  assert.equal(parseConfig(minimal).browser.target, "desktop");
+  const android = parseConfig({ ...minimal, browser: { target: "android", deviceSerial: "R58M123ABC" } });
+  assert.equal(android.browser.target, "android");
+  assert.equal(android.browser.deviceSerial, "R58M123ABC");
+  rejects({ ...minimal, browser: { target: "ios" } }, "browser.target");
+  rejects({ ...minimal, browser: { deviceSerial: "" } }, "deviceSerial");
+});

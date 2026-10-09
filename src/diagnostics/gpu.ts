@@ -1,4 +1,4 @@
-import { chromium, type Browser } from "playwright";
+import type { Browser } from "playwright";
 
 /**
  * Without GPU compositing and rasterization the browser paints on the CPU,
@@ -56,14 +56,5 @@ export async function readGpuStatus(browser: Browser): Promise<GpuStatus> {
     );
   } finally {
     await session.detach().catch(() => undefined);
-  }
-}
-
-export async function runGpuCheck(options: { headless?: boolean } = {}): Promise<GpuStatus> {
-  const browser = await chromium.launch({ headless: options.headless ?? false });
-  try {
-    return await readGpuStatus(browser);
-  } finally {
-    await browser.close();
   }
 }
