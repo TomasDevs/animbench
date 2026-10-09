@@ -263,6 +263,12 @@ async function commandBatch(configPath: string): Promise<void> {
     const { host, power, capabilities } = record.environment;
     if (sequence === 0 && host) console.log(`Machine:  ${describeHost(host)}`);
     if (sequence === 0 && power) console.log(`Power:    ${describePower(power.start)}`);
+    if (sequence === 0) {
+      const awake = record.environment.keepAwake;
+      console.log(
+        awake ? `Sleep:    blocked (${awake})` : "WARNING:  sleep could not be blocked; keep the machine awake by hand",
+      );
+    }
     if (sequence === 0 && capabilities) {
       const mark = (available: boolean) => (available ? "yes" : "NO");
       console.log(

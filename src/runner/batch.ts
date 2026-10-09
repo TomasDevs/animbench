@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { readEnvironment } from "../diagnostics/environment.js";
+import { keepAwake } from "../diagnostics/keep-awake.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
@@ -113,6 +114,7 @@ export async function runBatch(
   const { runs: planned, seed } = planBatch(config);
   const writer = new NdjsonWriter(config.output.ndjsonPath);
   const removeInterruptHandler = installInterruptHandler(writer);
+  const awake = await keepAwake();
 
   const discardReasons: Record<string, number> = {};
   let valid = 0;
@@ -125,7 +127,10 @@ export async function runBatch(
       { ...config.browser, appUrl: config.target.url },
       async (target) => {
         const { page } = target;
-        const environment = await readEnvironment(target, config.browser.viewport);
+        const environment = {
+          ...(await readEnvironment(target, config.browser.viewport)),
+          keepAwake: awake.method,
+        };
 
         if (config.browser.requireHardwareAcceleration && !environment.hardwareAccelerated) {
           throw new Error(
@@ -218,6 +223,7 @@ export async function runBatch(
       ...(abortedAfter ? { abortedAfter } : {}),
     };
   } finally {
+    awake.release();
     removeInterruptHandler();
     await writer.close();
   }

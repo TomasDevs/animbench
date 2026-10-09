@@ -27,6 +27,8 @@ export interface RunEnvironment {
   devicePixelRatio: number | null;
   host?: HostInfo;
   capabilities?: Capabilities;
+  /** What kept the machine from sleeping during the batch; null if nothing could. */
+  keepAwake?: string | null;
   /** Read just before navigation and just after the run, outside the measurement. */
   power?: { start: PowerState; end: PowerState };
 }

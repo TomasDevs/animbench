@@ -78,6 +78,14 @@ málo vzorků na percentily, upozorní na to už během měření.
 Přerušení klávesami Ctrl+C zapisovač korektně uzavře, takže dosud naměřené běhy
 zůstanou v souboru.
 
+Po celou dobu dávky nástroj brání uspání počítače i displeje (na macOS přes
+`caffeinate`, na Linuxu přes `systemd-inhibit`, na Windows přes
+`SetThreadExecutionState`) a po skončení či přerušení zámek uvolní. Spící stroj
+nekreslí, takže by každý běh až do probuzení skončil časovým limitem. Čím byl
+spánek blokovaný, se zapisuje ke každému běhu; když se zámek nepodaří získat,
+dávka na to na začátku upozorní. Na Linuxu a Windows to zatím nebylo ověřeno na
+skutečném stroji.
+
 ### Souhrn
 
 ```bash
