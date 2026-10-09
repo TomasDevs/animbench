@@ -139,6 +139,13 @@ export async function runBatch(
           // A crash in one run must not cost the hours of runs still queued, so
           // anything measureOnce did not classify is recorded and the batch
           // continues.
+          try {
+            await target.assertReady();
+          } catch (error) {
+            abortedAfter = { sequence: index, error: error instanceof Error ? error.message : String(error) };
+            break;
+          }
+
           const powerStart = await target.readPower();
           let outcome: SingleRunOutcome;
           try {

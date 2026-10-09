@@ -21,6 +21,11 @@ export interface MeasurementTarget {
   page: Page;
   readHost(): Promise<HostInfo>;
   readPower(): Promise<PowerState>;
+  /**
+   * Called before every run. Throws when the target can no longer measure, so
+   * a batch stops instead of timing out run after run.
+   */
+  assertReady(): Promise<void>;
 }
 
 const CHROME_PACKAGE = "com.android.chrome";
@@ -67,6 +72,15 @@ async function startChrome(device: AdbDevice): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt++) {
     const sockets = await device.shell("cat /proc/net/unix").catch(() => "");
     if (sockets.includes(`@${DEVTOOLS_SOCKET}`)) return;
+    // A Chrome that has never been opened waits on its welcome screens and
+    // does not open the socket until someone completes them.
+    const activities = await device.shell("dumpsys activity activities").catch(() => "");
+    if (/topResumedActivity=.*firstrun/i.test(activities)) {
+      throw new Error(
+        "Chrome on the phone shows its first-run screens; complete them on the phone " +
+          '(e.g. "Use without an account") and run again',
+      );
+    }
     await sleep(500);
   }
   throw new Error("Chrome did not open its DevTools socket; is USB debugging enabled?");
@@ -83,7 +97,13 @@ async function withDesktop<T>(
       viewport: options.viewport ?? { width: 1280, height: 720 },
     });
     const page = await context.newPage();
-    return await body({ kind: "desktop", page, readHost: readHostInfo, readPower: readPowerState });
+    return await body({
+      kind: "desktop",
+      page,
+      readHost: readHostInfo,
+      readPower: readPowerState,
+      assertReady: async () => undefined,
+    });
   } finally {
     await browser?.close();
   }
@@ -119,6 +139,7 @@ async function withAndroid<T>(
       page,
       readHost: () => device.readHost(),
       readPower: () => device.readPower(),
+      assertReady: () => assertScreenOn(device),
     });
   } finally {
     await page?.close().catch(() => undefined);

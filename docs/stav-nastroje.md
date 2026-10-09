@@ -15,10 +15,10 @@ metodickou kapitolu práce.
 | ořez na ustálené okno | hotovo |
 | vytížení procesoru (CDP) | hotovo, režie ověřena |
 | automatický záznam stroje a napájení | hotovo (macOS ověřen na stroji) |
-| testy | 74, ověřené mutacemi |
+| testy | 97, ověřené mutacemi |
 | pilotní měření | hotovo — 429 běhů, bez CPU vzorkování |
-| Android | **chybí** — čeká na zařízení k vyzkoušení |
-| sloupec se zařízením v CSV | **chybí** — doplní se s Androidem |
+| Android | hotovo, ověřeno na emulátoru — **čeká na skutečný telefon** |
+| zařízení a napájení v CSV, slučování sad | hotovo |
 | závěrečné měření | **čeká** na dokončení aplikace a Androidu |
 
 ---
@@ -217,9 +217,7 @@ nejhorší procento snímků už na 48 %.
 
 ## Co zbývá
 
-1. **Android** — připojení přes `adb`, ověření, co z DevTools protokolu na
-   telefonu funguje, a jeden kompletní běh. Zařízení budou k dispozici jen
-   jednou, takže musí fungovat napoprvé.
-2. **Sloupec se zařízením v CSV**, aby šly sady z více strojů sloučit.
-3. **Závěrečné měření** se vzorkováním procesoru (`cpuSampleIntervalMs: 1000`),
+1. **Android na skutečném telefonu** — jeden zkušební běh podle návodu,
+   včetně bezdrátového ladění pro měření na baterii, které zatím ověřené není.
+2. **Závěrečné měření** se vzorkováním procesoru (`cpuSampleIntervalMs: 1000`),
    na více zařízeních a odděleně na baterii.
