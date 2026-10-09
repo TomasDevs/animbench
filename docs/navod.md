@@ -44,7 +44,7 @@ kompozitoru, kterou měření zkoumá.
 animbench check-gpu                                       ověří akceleraci
 animbench run <adresa> [--out <soubor.ndjson>] [--cpu]    jeden běh
 animbench batch <config.json>                             matice kombinací
-animbench aggregate <soubor.ndjson> <soubor.csv> [--batch <id>]   souhrn
+animbench aggregate <soubor.ndjson>... <soubor.csv> [--batch <id>]   souhrn
 ```
 
 Ve vývoji se spouštějí přes `pnpm dev <příkaz>`, po sestavení (`pnpm build`)
@@ -86,6 +86,17 @@ pnpm dev aggregate results/runs.ndjson results/summary.csv
 
 Dávka s vyplněným `output.csvPath` tohle udělá sama. Samostatně se příkaz hodí
 při přepočtu už naměřených dat — třeba po změně kritérií.
+
+Souborů NDJSON lze zadat víc — typicky jeden z každého zařízení — a souhrn je
+sloučí do jedné tabulky:
+
+```bash
+pnpm dev aggregate mac.ndjson telefon.ndjson results/vse.csv
+```
+
+Běhy z různých zařízení nebo s různým napájením se přitom nikdy nezprůměrují
+dohromady: každá kombinace dostane vlastní řádek pro každé zařízení a pro provoz
+v síti i na baterii zvlášť.
 
 Soubor NDJSON se zapisuje přidáváním na konec, takže může obsahovat víc dávek.
 Přepínač `--batch <id>` omezí souhrn na jednu; bez něj se sečtou všechny, což
@@ -274,8 +285,14 @@ přebuildovat nebo restartovat.
 
 ### CSV
 
-Jeden řádek na kombinaci. První sloupce jsou parametry matice, pak počty běhů
-a metriky.
+Jeden řádek na kombinaci a zařízení. První sloupce popisují podmínky měření,
+pak následují parametry matice, počty běhů a metriky.
+
+| sloupec | význam |
+|---|---|
+| `deviceModel`, `deviceCpu`, `deviceOs` | zařízení, na kterém se měřilo |
+| `powerSource` | `ac` (síť), `battery`, nebo `unknown` |
+| `batteryMin`, `batteryMax` | rozsah nabití baterie během běhů skupiny |
 
 | sloupec | význam |
 |---|---|

@@ -8,12 +8,13 @@ import { measureOnce } from "./runner/single-run.js";
 import { withTarget, type TargetOptions } from "./runner/target.js";
 import { NdjsonWriter, installInterruptHandler, readNdjson } from "./output/ndjson.js";
 import { aggregateRuns } from "./analysis/aggregate.js";
+import { parseAggregateArgs } from "./cli/aggregate-args.js";
 import { computeRunMetrics } from "./analysis/metrics.js";
 import { ConfigError, loadConfig } from "./config/load.js";
 import { runBatch } from "./runner/batch.js";
 import { writeCsv } from "./output/csv.js";
 import { DEFAULT_BROWSER, DEFAULT_TIMING } from "./types/config.js";
-import type { RunEnvironment } from "./types/record.js";
+import type { RunEnvironment, RunRecord } from "./types/record.js";
 
 function printGpuStatus(status: GpuStatus): void {
   const { features, renderer, missing, accelerated } = status;
@@ -158,25 +159,33 @@ async function commandRun(
   }
 }
 
+/** Several files merge the devices they were measured on into one table. */
 async function commandAggregate(
-  ndjsonPath: string,
+  ndjsonPaths: string[],
   csvPath: string,
   batchId?: string,
 ): Promise<void> {
-  const { records, malformedLines } = await readNdjson(ndjsonPath);
-
-  if (malformedLines.length > 0) {
-    console.log(`WARNING: ${malformedLines.length} unreadable line(s): ${malformedLines.join(", ")}`);
+  const records: RunRecord[] = [];
+  for (const ndjsonPath of ndjsonPaths) {
+    const read = await readNdjson(ndjsonPath);
+    if (read.malformedLines.length > 0) {
+      console.log(
+        `WARNING: ${ndjsonPath}: ${read.malformedLines.length} unreadable line(s): ` +
+          read.malformedLines.join(", "),
+      );
+    }
+    records.push(...read.records);
   }
+  const sources = ndjsonPaths.join(", ");
   if (records.length === 0) {
-    console.log(`No runs found in ${ndjsonPath}`);
+    console.log(`No runs found in ${sources}`);
     process.exitCode = 1;
     return;
   }
 
   const aggregates = aggregateRuns(records, batchId ? { batchId } : {});
   if (aggregates.length === 0) {
-    console.log(`No runs in ${ndjsonPath} belong to batch ${batchId}`);
+    console.log(`No runs in ${sources} belong to batch ${batchId}`);
     process.exitCode = 1;
     return;
   }
@@ -192,8 +201,13 @@ async function commandAggregate(
   );
   console.log(`${aggregates.length} combination(s) written to ${csvPath}`);
 
+  // Only worth naming the device when the table mixes several.
+  const conditions = new Set(aggregates.map((group) => JSON.stringify(group.device)));
   for (const group of aggregates) {
-    const label = Object.entries(group.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const parameters =
+      Object.entries(group.combination).map(([k, v]) => `${k}=${v}`).join(" ") || "(no parameters)";
+    const label =
+      conditions.size > 1 ? `[${group.device.model}, ${group.device.power}] ${parameters}` : parameters;
     const discards = Object.entries(group.discardReasons)
       .map(([reason, count]) => `${reason}:${count}`)
       .join(" ");
@@ -308,7 +322,7 @@ async function commandBatch(configPath: string): Promise<void> {
 
   if (config.output.csvPath) {
     console.log("");
-    await commandAggregate(config.output.ndjsonPath, config.output.csvPath, summary.batchId);
+    await commandAggregate([config.output.ndjsonPath], config.output.csvPath, summary.batchId);
   }
 }
 
@@ -345,20 +359,13 @@ async function main(): Promise<void> {
   }
 
   if (command === "aggregate") {
-    const [ndjsonPath, csvPath] = rest;
-    if (!ndjsonPath || !csvPath) {
-      console.log("Usage: animbench aggregate <file.ndjson> <file.csv> [--batch <id>]");
+    const parsed = parseAggregateArgs(rest);
+    if (typeof parsed === "string") {
+      console.log(parsed);
       process.exitCode = 1;
       return;
     }
-    const batchIndex = rest.indexOf("--batch");
-    const batchId = batchIndex === -1 ? undefined : rest[batchIndex + 1];
-    if (batchIndex !== -1 && !batchId) {
-      console.log("--batch requires a batch id");
-      process.exitCode = 1;
-      return;
-    }
-    await commandAggregate(ndjsonPath, csvPath, batchId);
+    await commandAggregate(parsed.ndjsonPaths, parsed.csvPath, parsed.batchId);
     return;
   }
 
@@ -377,7 +384,7 @@ async function main(): Promise<void> {
   console.log("  check-gpu                          verify hardware acceleration");
   console.log("  run <url-or-file> [--out <file>] [--cpu]   measure a single run");
   console.log("  batch <config.json>                measure a matrix of combinations");
-  console.log("  aggregate <file.ndjson> <file.csv> [--batch <id>]   summarise recorded runs");
+  console.log("  aggregate <file.ndjson>... <file.csv> [--batch <id>]   summarise recorded runs");
   process.exitCode = 1;
 }
 

@@ -11,7 +11,32 @@ export type AggregatedMetric = {
   max: number;
 };
 
+/**
+ * The machine and power condition a run was measured under. Part of the group
+ * key: runs from different devices, or on mains and on battery, measure
+ * different things and must never be averaged together.
+ */
+export interface DeviceCondition {
+  model: string;
+  cpu: string;
+  os: string;
+  power: "ac" | "battery" | "unknown";
+}
+
+export function deviceConditionOf(record: RunRecord): DeviceCondition {
+  const host = record.environment.host;
+  return {
+    model: host?.model ?? "unknown",
+    cpu: host?.cpu ?? "unknown",
+    os: host?.osVersion ?? record.environment.operatingSystem ?? "unknown",
+    power: record.environment.power?.start.source ?? "unknown",
+  };
+}
+
 export interface GroupAggregate {
+  device: DeviceCondition;
+  /** Lowest and highest charge seen across the group's runs; null off battery data. */
+  batteryPercent: { min: number; max: number } | null;
   /** Parameter values shared by the runs in this group. */
   combination: Record<string, string>;
   /** Values from the page's meta shared across the group, for reference. */
@@ -76,12 +101,24 @@ function aggregateValues(values: number[]): AggregatedMetric {
 }
 
 /** Groups by the parameter combination, the only dimension the tool defines. */
-function groupKey(combination: Record<string, string>): string {
-  return JSON.stringify(
+function groupKey(record: RunRecord): string {
+  const { combination } = record;
+  return JSON.stringify([
+    deviceConditionOf(record),
     Object.keys(combination)
       .sort()
       .map((name) => [name, combination[name]]),
-  );
+  ]);
+}
+
+function batteryRange(records: readonly RunRecord[]): GroupAggregate["batteryPercent"] {
+  const levels = records
+    .flatMap((record) => {
+      const power = record.environment.power;
+      return power ? [power.start.batteryPercent, power.end.batteryPercent] : [];
+    })
+    .filter((level): level is number => level !== null);
+  return levels.length ? { min: Math.min(...levels), max: Math.max(...levels) } : null;
 }
 
 export interface AggregateOptions {
@@ -103,7 +140,7 @@ export function aggregateRuns(
 
   const groups = new Map<string, RunRecord[]>();
   for (const record of selected) {
-    const key = groupKey(record.combination);
+    const key = groupKey(record);
     const existing = groups.get(key);
     if (existing) existing.push(record);
     else groups.set(key, [record]);
@@ -135,8 +172,11 @@ export function aggregateRuns(
       metrics[key] = aggregateValues(runMetrics.map((entry) => entry[key]));
     }
 
+    const first = groupRecords[0] as RunRecord;
     aggregates.push({
-      combination: groupRecords[0]?.combination ?? {},
+      device: deviceConditionOf(first),
+      batteryPercent: batteryRange(groupRecords),
+      combination: first.combination,
       meta: validRecords[0]?.meta ?? {},
       runsTotal: groupRecords.length,
       runsValid: runMetrics.length,

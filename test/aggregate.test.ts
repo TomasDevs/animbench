@@ -109,3 +109,57 @@ test("discarded runs never contribute measurements", () => {
   ]);
   assert.ok(Math.abs((groups[0]?.metrics.meanFps.mean ?? 0) - 60) < 1e-6);
 });
+
+function onDevice(
+  record: RunRecord,
+  model: string,
+  source: "ac" | "battery",
+  battery: [number, number] | null = null,
+): RunRecord {
+  const level = (percent: number | null) => ({
+    source,
+    batteryPercent: percent,
+    batteryState: source === "battery" ? "discharging" : "charged",
+  });
+  return {
+    ...record,
+    environment: {
+      ...record.environment,
+      host: { platform: "test", osVersion: "OS 1", model, cpu: "CPU", cpuCores: 8, memoryGb: 8 },
+      power: { start: level(battery?.[0] ?? null), end: level(battery?.[1] ?? null) },
+    },
+  };
+}
+
+test("runs from different devices are never averaged together", () => {
+  const slow = Array.from({ length: 30 }, () => 1000 / 30);
+  const groups = aggregateRuns([
+    onDevice(makeRecord(), "Mac", "ac"),
+    onDevice(makeRecord({ intervals: slow }), "Phone", "ac"),
+  ]);
+  assert.equal(groups.length, 2);
+  const mac = groups.find((g) => g.device.model === "Mac");
+  const phone = groups.find((g) => g.device.model === "Phone");
+  assert.ok(Math.abs((mac?.metrics.meanFps.mean ?? 0) - 60) < 1e-6);
+  assert.ok(Math.abs((phone?.metrics.meanFps.mean ?? 0) - 30) < 1e-6);
+});
+
+test("mains and battery runs on one device form separate groups", () => {
+  const groups = aggregateRuns([
+    onDevice(makeRecord(), "Mac", "ac"),
+    onDevice(makeRecord(), "Mac", "battery", [92, 90]),
+    onDevice(makeRecord(), "Mac", "battery", [90, 87]),
+  ]);
+  assert.equal(groups.length, 2);
+  const battery = groups.find((g) => g.device.power === "battery");
+  assert.equal(battery?.runsValid, 2);
+  assert.deepEqual(battery?.batteryPercent, { min: 87, max: 92 });
+  assert.equal(groups.find((g) => g.device.power === "ac")?.batteryPercent, null);
+});
+
+test("records predating the host field still aggregate, under an unknown device", () => {
+  const groups = aggregateRuns([makeRecord(), makeRecord()]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.device.model, "unknown");
+  assert.equal(groups[0]?.device.power, "unknown");
+});
