@@ -159,6 +159,21 @@ function parseTarget(value: unknown): "desktop" | "android" {
   throw new ConfigError(`browser.target must be "desktop" or "android"`);
 }
 
+function optionalPositive(
+  source: Record<string, unknown>,
+  key: string,
+  maximum = Number.POSITIVE_INFINITY,
+): Record<string, number> {
+  const value = source[key];
+  if (value === undefined) return {};
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > maximum) {
+    throw new ConfigError(
+      `batch.${key} must be a positive number${Number.isFinite(maximum) ? ` up to ${maximum}` : ""}`,
+    );
+  }
+  return { [key]: value };
+}
+
 function optionalString(source: Record<string, unknown>, key: string): Record<string, string> {
   const value = source[key];
   if (value === undefined) return {};
@@ -224,6 +239,11 @@ export function parseConfig(raw: unknown, configPath?: string): BenchConfig {
       warmupRuns,
       shuffle: parseBoolean(batch["shuffle"], "batch.shuffle", DEFAULT_BATCH.shuffle),
       ...(seed !== undefined ? { seed } : {}),
+      ...optionalPositive(batch, "expectedRefreshRateHz"),
+      ...optionalPositive(batch, "refreshTolerance", 1),
+      ...(batch["minFramesInWindow"] !== undefined
+        ? { minFramesInWindow: parseCount(batch["minFramesInWindow"], "batch.minFramesInWindow", 0, 1) }
+        : {}),
     },
     browser: {
       headless: parseBoolean(browser["headless"], "browser.headless", DEFAULT_BROWSER.headless),

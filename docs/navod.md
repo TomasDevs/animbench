@@ -195,6 +195,9 @@ chlazených strojích má smysl ji zvýšit.
 | `warmupRuns` | 1 | rozehřívací běhy, které se zahazují |
 | `shuffle` | true | náhodné pořadí měřených běhů |
 | `seed` | náhodný | semínko míchání |
+| `expectedRefreshRateHz` | — | očekávaná frekvence displeje; běh s klidovou frekvencí mimo toleranci se zahodí |
+| `refreshTolerance` | 0,1 | tolerance k očekávané frekvenci (0,1 = ±10 %) |
+| `minFramesInWindow` | — | běh s menším počtem snímků v měřeném okně se zahodí |
 
 Rozehřívací běhy proběhnou vždy jako první a do výsledků nevstupují. Měřené
 běhy se zamíchají, aby postupné zahřívání zařízení nezvýhodnilo tu kombinaci,
@@ -202,6 +205,14 @@ která by jinak běžela první.
 
 Semínko se vždy vypíše a zapíše ke každému běhu, i když se nezadá — jinak by
 pořadí nešlo zopakovat.
+
+Pravidla zahození se uplatní přímo při měření: běh, který je nesplní, se zapíše
+jako zahozený s důvodem `refresh-mismatch` nebo `too-few-frames` a s podrobností.
+Data se tak nemusí dodatečně čistit a v souhrnu je vidět, kolik běhů které
+pravidlo vyřadilo. Naměřená frekvence displeje se vypíše hned po prvním běhu.
+U displejů s proměnlivou frekvencí (telefony s 90 nebo 120 Hz) očekávanou
+frekvenci nenastavujte — v klidu může displej spadnout na nižší frekvenci
+a pravidlo by zahodilo všechny běhy.
 
 ### browser
 
@@ -384,6 +395,8 @@ Důvody zahození:
 | `page-error` | stránka ohlásila `__benchError` |
 | `contract-violation` | výsledek nemá očekávaný tvar |
 | `stale-build` | stránka je připravená, ale nevystavuje `__benchStart` |
+| `refresh-mismatch` | klidová frekvence se liší od `expectedRefreshRateHz` víc, než dovoluje tolerance |
+| `too-few-frames` | v měřeném okně je méně snímků než `minFramesInWindow` |
 | `timeout` | stránka neohlásila připravenost nebo dokončení včas |
 | `navigation-error` | adresu se nepodařilo načíst |
 

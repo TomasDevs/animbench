@@ -147,3 +147,13 @@ test("without a config file, relative paths keep meaning the working directory",
   const config = parseConfig({ ...minimal, output: { ndjsonPath: "runs.ndjson" } });
   assert.equal(config.output.ndjsonPath, `${process.cwd()}/runs.ndjson`);
 });
+
+test("discard rules are optional and validated", () => {
+  assert.equal(parseConfig(minimal).batch.expectedRefreshRateHz, undefined);
+  const config = parseConfig({ ...minimal, batch: { expectedRefreshRateHz: 60, refreshTolerance: 0.1, minFramesInWindow: 100 } });
+  assert.equal(config.batch.expectedRefreshRateHz, 60);
+  assert.equal(config.batch.minFramesInWindow, 100);
+  rejects({ ...minimal, batch: { expectedRefreshRateHz: 0 } }, "expectedRefreshRateHz");
+  rejects({ ...minimal, batch: { refreshTolerance: 1.5 } }, "refreshTolerance");
+  rejects({ ...minimal, batch: { minFramesInWindow: 2.5 } }, "whole number");
+});

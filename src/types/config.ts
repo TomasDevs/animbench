@@ -39,6 +39,16 @@ export interface BatchConfig {
    */
   shuffle: boolean;
   seed?: number;
+  /**
+   * Refresh rate the display is expected to run at. A run whose idle baseline
+   * differs by more than `refreshTolerance` is discarded. Leave unset on
+   * adaptive displays, which drop their rate when idle.
+   */
+  expectedRefreshRateHz?: number;
+  /** Relative tolerance for `expectedRefreshRateHz`; 0.1 means ±10 %. */
+  refreshTolerance?: number;
+  /** A run with fewer frames in its measured window is discarded. */
+  minFramesInWindow?: number;
 }
 
 export interface BrowserConfig {
