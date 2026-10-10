@@ -1,5 +1,6 @@
 import type { CDPSession, Page } from "playwright";
 import { processCpuAvailable } from "../diagnostics/capabilities.js";
+import type { GpuUsageReader } from "../diagnostics/gpu-usage.js";
 import type { CpuSample } from "../types/record.js";
 
 interface PerformanceMetric {
@@ -56,13 +57,14 @@ export class CpuSampler {
     private readonly browserSession: CDPSession,
     private readonly clockOffsetMs: number,
     private readonly intervalMs: number,
+    private readonly gpuUsage: GpuUsageReader | null,
   ) {}
 
   /**
    * Must be called before the run starts: aligning the clocks evaluates script
    * in the page, which is only acceptable while nothing is being measured.
    */
-  static async attach(page: Page, intervalMs: number): Promise<CpuSampler> {
+  static async attach(page: Page, intervalMs: number, gpuUsage: GpuUsageReader | null = null): Promise<CpuSampler> {
     const browser = page.context().browser();
     if (!browser) throw new Error("CPU sampling needs a launched browser");
 
@@ -71,7 +73,7 @@ export class CpuSampler {
     await pageSession.send("Performance.enable");
 
     const clockOffsetMs = await measureClockOffset(page, pageSession);
-    return new CpuSampler(pageSession, browserSession, clockOffsetMs, intervalMs);
+    return new CpuSampler(pageSession, browserSession, clockOffsetMs, intervalMs, gpuUsage);
   }
 
   async start(): Promise<void> {
@@ -100,11 +102,14 @@ export class CpuSampler {
   }
 
   private async sample(): Promise<void> {
-    const [{ metrics }, { processInfo }] = await Promise.all([
+    const [{ metrics }, { processInfo }, gpu] = await Promise.all([
       this.pageSession.send("Performance.getMetrics") as Promise<{ metrics: PerformanceMetric[] }>,
       this.browserSession.send("SystemInfo.getProcessInfo") as Promise<{ processInfo: ProcessInfo[] }>,
+      this.gpuUsage ? this.gpuUsage.read() : Promise.resolve(undefined),
     ]);
-    this.samples.push(toCpuSample(metrics, processInfo, this.clockOffsetMs));
+    const sample = toCpuSample(metrics, processInfo, this.clockOffsetMs);
+    if (gpu !== undefined) sample.gpuUtilization = gpu;
+    this.samples.push(sample);
   }
 }
 

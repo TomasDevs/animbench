@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readEnvironment } from "./diagnostics/environment.js";
+import { openForBatch } from "./diagnostics/gpu-usage.js";
 import { readGpuStatus, type GpuStatus } from "./diagnostics/gpu.js";
 import { describeDisplay, type HostInfo, type PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
@@ -90,8 +91,9 @@ async function commandRun(
       const timing = sampleCpu
         ? { ...DEFAULT_TIMING, cpuSampleIntervalMs: RUN_CPU_SAMPLE_INTERVAL_MS }
         : DEFAULT_TIMING;
+      const gpu = await openForBatch(device.kind, sampleCpu, page.context().browser());
       const powerStart = await device.readPower();
-      const measured = await measureOnce(page, url, timing);
+      const measured = await measureOnce(page, url, timing, gpu.reader).finally(() => gpu.reader?.close());
       const powerEnd = await device.readPower();
 
       const environment: RunEnvironment = {
@@ -102,6 +104,7 @@ async function commandRun(
         devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
         ...(measured.ok ? { screen: measured.viewport.screen } : {}),
         power: { start: powerStart, end: powerEnd },
+        gpuUsageScope: gpu.available ? (gpu.reader?.scope ?? null) : null,
       };
       return { measured, environment, accelerated: base.hardwareAccelerated };
     });
@@ -147,9 +150,12 @@ async function commandRun(
         const last = samples[samples.length - 1]!;
         const span = last.t - first.t;
         const task = last.mainThread.taskMs - first.mainThread.taskMs;
+        const gpu = samples.map((sample) => sample.gpuUtilization).filter((v): v is number => typeof v === "number");
         console.log(
           `CPU samples:   ${samples.length} over ${(span / 1000).toFixed(1)} s, ` +
-            `main thread busy ${((task / span) * 100).toFixed(0)} % (whole run, ramp included)`,
+            `main thread busy ${((task / span) * 100).toFixed(0)} %` +
+            (gpu.length ? `, GPU ${(gpu.reduce((a, b) => a + b, 0) / gpu.length).toFixed(0)} %` : "") +
+            " (whole run, ramp included)",
         );
       }
     }
@@ -221,6 +227,9 @@ async function commandAggregate(
           `over=${group.metrics.framesOverBudget.mean.toFixed(1)}` +
           (Number.isFinite(group.metrics.mainThreadBusyRatio.mean)
             ? `  main=${(group.metrics.mainThreadBusyRatio.mean * 100).toFixed(0)}%`
+            : "") +
+          (Number.isFinite(group.metrics.gpuBusyRatio.mean)
+            ? `  gpu=${(group.metrics.gpuBusyRatio.mean * 100).toFixed(0)}%`
             : "");
 
     console.log(
@@ -292,7 +301,10 @@ async function commandBatch(configPath: string): Promise<void> {
       console.log(
         `CDP:      GPU status ${mark(capabilities.gpuStatus)}, ` +
           `main-thread metrics ${mark(capabilities.mainThreadMetrics)}, ` +
-          `process CPU ${mark(capabilities.processCpu)}`,
+          `process CPU ${mark(capabilities.processCpu)}` +
+          (capabilities.gpuUtilization !== undefined
+            ? `, GPU usage ${mark(capabilities.gpuUtilization)}${record.environment.gpuUsageScope ? ` (${record.environment.gpuUsageScope})` : ""}`
+            : ""),
       );
       console.log("");
     }

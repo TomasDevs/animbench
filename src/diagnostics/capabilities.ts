@@ -14,6 +14,8 @@ export interface Capabilities {
    * Android answers the call but reports zero for its sandboxed processes.
    */
   processCpu: boolean;
+  /** GPU utilisation could be read from the operating system. */
+  gpuUtilization?: boolean;
 }
 
 interface ProcessInfo {

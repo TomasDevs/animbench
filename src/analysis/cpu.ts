@@ -11,6 +11,11 @@ export interface CpuMetrics {
   /** Can exceed 1: the process runs more than one thread. */
   rendererCpuRatio: number;
   gpuProcessCpuRatio: number;
+  /**
+   * Mean GPU utilisation over the samples inside the span, as a share. What it
+   * covers depends on the platform (see `gpuUsageScope`).
+   */
+  gpuBusyRatio: number;
   cpuSampleCount: number;
 }
 
@@ -22,6 +27,7 @@ const UNAVAILABLE: CpuMetrics = {
   mainThreadOtherRatio: Number.NaN,
   rendererCpuRatio: Number.NaN,
   gpuProcessCpuRatio: Number.NaN,
+  gpuBusyRatio: Number.NaN,
   cpuSampleCount: 0,
 };
 
@@ -50,6 +56,19 @@ export function counterAt(samples: readonly CpuSample[], t: number, counter: Cou
     return counter(before) + (counter(after) - counter(before)) * fraction;
   }
   return Number.NaN;
+}
+
+/**
+ * Utilisation is an instantaneous percentage, not a counter, so the span's
+ * value is the mean of the readings taken inside it.
+ */
+function meanGpuUtilization(samples: readonly CpuSample[], fromMs: number, toMs: number): number {
+  const readings = samples
+    .filter((sample) => sample.t >= fromMs && sample.t <= toMs)
+    .map((sample) => sample.gpuUtilization)
+    .filter((value): value is number => typeof value === "number");
+  if (readings.length === 0) return Number.NaN;
+  return readings.reduce((total, value) => total + value, 0) / readings.length / 100;
 }
 
 /**
@@ -84,6 +103,7 @@ export function computeCpuMetrics(
     mainThreadOtherRatio: busy - script - style - layout,
     rendererCpuRatio: share(COUNTERS.renderer),
     gpuProcessCpuRatio: share(COUNTERS.gpu),
+    gpuBusyRatio: meanGpuUtilization(samples, fromMs, toMs),
     cpuSampleCount: samples.filter((sample) => sample.t >= fromMs && sample.t <= toMs).length,
   };
 }

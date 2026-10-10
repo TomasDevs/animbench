@@ -119,6 +119,7 @@ const METRIC_KEYS = [
   "mainThreadOtherRatio",
   "rendererCpuRatio",
   "gpuProcessCpuRatio",
+  "gpuBusyRatio",
   "cpuSampleCount",
 ] as const satisfies readonly (keyof RunMetrics)[];
 

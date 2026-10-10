@@ -35,6 +35,11 @@ export interface RunEnvironment {
   screen?: { width: number; height: number };
   host?: HostInfo;
   capabilities?: Capabilities;
+  /**
+   * What `gpuUtilization` covers: the whole GPU on macOS, the browser's GPU
+   * process on Windows; null where it was not measured.
+   */
+  gpuUsageScope?: "system" | "browser-gpu-process" | null;
   /** What kept the machine from sleeping during the batch; null if nothing could. */
   keepAwake?: string | null;
   /** Read just before navigation and just after the run, outside the measurement. */
@@ -65,6 +70,11 @@ export interface CpuSample {
     renderer: number;
     gpu: number;
   } | null;
+  /**
+   * GPU utilisation in percent at this moment, read from the operating system.
+   * Unlike the counters above it is not cumulative. Absent where unavailable.
+   */
+  gpuUtilization?: number | null;
 }
 
 /**
