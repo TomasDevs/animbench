@@ -198,6 +198,8 @@ chlazených strojích má smysl ji zvýšit.
 | `expectedRefreshRateHz` | — | očekávaná frekvence displeje; běh s klidovou frekvencí mimo toleranci se zahodí |
 | `refreshTolerance` | 0,1 | tolerance k očekávané frekvenci (0,1 = ±10 %) |
 | `minFramesInWindow` | — | běh s menším počtem snímků v měřeném okně se zahodí |
+| `requirePowerSource` | — | `ac` nebo `battery`; při jiném napájení se dávka zastaví |
+| `minBatteryPercent` | — | pod tímto nabitím se dávka zastaví před dalším během |
 
 Rozehřívací běhy proběhnou vždy jako první a do výsledků nevstupují. Měřené
 běhy se zamíchají, aby postupné zahřívání zařízení nezvýhodnilo tu kombinaci,
@@ -213,6 +215,13 @@ pravidlo vyřadilo. Naměřená frekvence displeje se vypíše hned po prvním b
 U displejů s proměnlivou frekvencí (telefony s 90 nebo 120 Hz) očekávanou
 frekvenci nenastavujte — v klidu může displej spadnout na nižší frekvenci
 a pravidlo by zahodilo všechny běhy.
+
+Napájení se kontroluje před každým během. Když neodpovídá `requirePowerSource`
+nebo nabití klesne pod `minBatteryPercent`, dávka se před dalším během ukončí
+a dosavadní běhy zůstanou uložené; běh, během kterého se napájení změnilo, se
+zahodí s důvodem `power-changed`. Ke každému běhu se zapisuje i úsporný režim
+systému (`environment.power.start.lowPowerMode`); je-li zapnutý, dávka na to na
+začátku upozorní, protože omezuje výkon a měřilo by se toto nastavení.
 
 ### browser
 
@@ -397,6 +406,7 @@ Důvody zahození:
 | `stale-build` | stránka je připravená, ale nevystavuje `__benchStart` |
 | `refresh-mismatch` | klidová frekvence se liší od `expectedRefreshRateHz` víc, než dovoluje tolerance |
 | `too-few-frames` | v měřeném okně je méně snímků než `minFramesInWindow` |
+| `power-changed` | během běhu se změnilo napájení, které `requirePowerSource` vyžaduje |
 | `timeout` | stránka neohlásila připravenost nebo dokončení včas |
 | `navigation-error` | adresu se nepodařilo načíst |
 

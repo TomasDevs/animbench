@@ -243,7 +243,8 @@ function describePower(power: PowerState): string {
   const source = { ac: "mains", battery: "on battery", unknown: "unknown" }[power.source];
   const battery =
     power.batteryPercent === null ? "" : `, battery ${power.batteryPercent} % (${power.batteryState})`;
-  return `${source}${battery}`;
+  const saver = power.lowPowerMode ? ", LOW POWER MODE ON" : "";
+  return `${source}${battery}${saver}`;
 }
 
 function formatDuration(ms: number): string {
@@ -267,7 +268,12 @@ async function commandBatch(configPath: string): Promise<void> {
     // the phone's, which only the running target knows.
     const { host, power, capabilities } = record.environment;
     if (sequence === 0 && host) console.log(`Machine:  ${describeHost(host)}`);
-    if (sequence === 0 && power) console.log(`Power:    ${describePower(power.start)}`);
+    if (sequence === 0 && power) {
+      console.log(`Power:    ${describePower(power.start)}`);
+      if (power.start.lowPowerMode) {
+        console.log("WARNING:  low power mode throttles the machine; turn it off unless it is what you measure");
+      }
+    }
     if (sequence === 0) {
       // Shown at once: on an adaptive display a wrong rate is the first thing
       // to catch, and the batch should be stopped before hours are spent.

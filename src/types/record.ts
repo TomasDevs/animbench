@@ -12,7 +12,8 @@ export type DiscardReason =
   | "timeout"
   | "navigation-error"
   | "refresh-mismatch"
-  | "too-few-frames";
+  | "too-few-frames"
+  | "power-changed";
 
 export interface RunEnvironment {
   browser: string | null;
