@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { readEnvironment } from "./diagnostics/environment.js";
 import { readGpuStatus, type GpuStatus } from "./diagnostics/gpu.js";
-import type { HostInfo, PowerState } from "./diagnostics/host.js";
+import { describeDisplay, type HostInfo, type PowerState } from "./diagnostics/host.js";
 import { buildRunRecord } from "./runner/build-record.js";
 import { measureOnce } from "./runner/single-run.js";
 import { withTarget, type TargetOptions } from "./runner/target.js";
@@ -100,6 +100,7 @@ async function commandRun(
           ? { width: measured.viewport.width, height: measured.viewport.height }
           : DEFAULT_BROWSER.viewport,
         devicePixelRatio: measured.ok ? measured.viewport.devicePixelRatio : null,
+        ...(measured.ok ? { screen: measured.viewport.screen } : {}),
         power: { start: powerStart, end: powerEnd },
       };
       return { measured, environment, accelerated: base.hardwareAccelerated };
@@ -230,7 +231,10 @@ async function commandAggregate(
 }
 
 function describeHost(host: HostInfo): string {
-  return [host.model, host.cpu, `${host.cpuCores} cores`, `${host.memoryGb} GB`, host.osVersion]
+  const display = host.display
+    ? `display ${describeDisplay(host.display)}${host.display.connection ? ` (${host.display.connection})` : ""}`
+    : null;
+  return [host.model, host.cpu, `${host.cpuCores} cores`, `${host.memoryGb} GB`, host.osVersion, display]
     .filter(Boolean)
     .join(", ");
 }

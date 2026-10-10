@@ -3,7 +3,7 @@ import { access } from "node:fs/promises";
 import os from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { HostInfo, PowerState } from "../diagnostics/host.js";
+import type { DisplayInfo, HostInfo, PowerState } from "../diagnostics/host.js";
 
 const run = promisify(execFile);
 
@@ -57,6 +57,14 @@ export function parseDumpsysBattery(text: string): PowerState {
     batteryPercent: Number.isFinite(level) && scale > 0 ? Math.round((level / scale) * 100) : null,
     batteryState: status ? (BATTERY_STATUS[status] ?? `status ${status}`) : null,
   };
+}
+
+/** Parses `wm size`; an override set by the user takes precedence. */
+export function parseWmSize(text: string): DisplayInfo | null {
+  const size =
+    /Override size:\s*(\d+)x(\d+)/.exec(text) ?? /Physical size:\s*(\d+)x(\d+)/.exec(text);
+  if (!size) return null;
+  return { name: null, resolution: `${size[1]}x${size[2]}`, refreshHz: null, connection: "internal" };
 }
 
 /** Counts CPUs in a kernel range list such as "0-3,6-7". */
@@ -133,16 +141,17 @@ export class AdbDevice {
   }
 
   async readHost(): Promise<HostInfo> {
-    const [props, possible, nproc, meminfo] = await Promise.all([
+    const [props, possible, nproc, meminfo, wmSize] = await Promise.all([
       this.shell("getprop"),
       this.shell("cat /sys/devices/system/cpu/possible").catch(() => ""),
       this.shell("nproc").catch(() => "0"),
       this.shell("cat /proc/meminfo").catch(() => ""),
+      this.shell("wm size").catch(() => ""),
     ]);
     // nproc counts only the cores the debug shell may use, which Android can
     // restrict to the efficiency cluster; the kernel list covers the whole SoC.
     const cores = countCpuRange(possible) || Number(nproc.trim()) || 0;
-    return androidHostInfo(parseGetprop(props), cores, meminfo);
+    return { ...androidHostInfo(parseGetprop(props), cores, meminfo), display: parseWmSize(wmSize) };
   }
 
   async readPower(): Promise<PowerState> {

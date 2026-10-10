@@ -183,6 +183,7 @@ export async function runBatch(
                   ? {
                       viewport: { width: outcome.viewport.width, height: outcome.viewport.height },
                       devicePixelRatio: outcome.viewport.devicePixelRatio,
+                      screen: outcome.viewport.screen,
                     }
                   : {}),
                 power: { start: powerStart, end: await target.readPower() },

@@ -13,13 +13,21 @@ export async function readEnvironment(
   if (!browser) throw new Error("the measured page has no browser to inspect");
   const gpu = await readGpuStatus(browser);
   const host = await target.readHost();
+  // Read before any run, so a run that fails still carries its display.
+  const display = await page
+    .evaluate(() => ({
+      devicePixelRatio: window.devicePixelRatio,
+      screen: { width: window.screen.width, height: window.screen.height },
+    }))
+    .catch(() => null);
   return {
     browser: browser.version(),
     operatingSystem: host.osVersion,
     renderer: gpu.renderer,
     hardwareAccelerated: gpu.accelerated,
     viewport,
-    devicePixelRatio: null,
+    devicePixelRatio: display?.devicePixelRatio ?? null,
+    ...(display ? { screen: display.screen } : {}),
     host,
     capabilities: await probeCapabilities(page),
   };

@@ -207,6 +207,11 @@ nejhorší procento snímků už na 48 %.
   který ji řídí. Prohlížeč vytížení GPU nevystavuje.
 - **Spotřeba se neměří.** Rozhraní prohlížečů pro baterii je omezené a systémové
   měření by mísilo prohlížeč se zbytkem stroje.
+- **Stránka na desktopu nevidí skutečný displej.** Playwright při pevné
+  velikosti okna emuluje obrazovku stejné velikosti a poměr pixelů 1, takže
+  stránka se vykresluje v poměru 1 i na displeji Retina. Fyzický displej proto
+  nástroj čte ze systému (`host.display`) a podle něj odděluje podmínky měření.
+  Na telefonu se nic neemuluje a stránka vidí skutečnou obrazovku.
 - **Playwright spouští Chrome s vlastními přepínači**, mimo jiné s vypnutým
   *Direct Rendering Display Compositor*. Srovnání technik to neovlivní, absolutní
   čísla se ale mohou lišit od běžného prohlížeče.

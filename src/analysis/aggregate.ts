@@ -1,3 +1,4 @@
+import { describeDisplay } from "../diagnostics/host.js";
 import type { CpuSample, RunRecord } from "../types/record.js";
 import { computeRunMetrics, type RunMetrics } from "./metrics.js";
 import { mean, percentile, standardDeviation } from "./statistics.js";
@@ -21,6 +22,22 @@ export interface DeviceCondition {
   cpu: string;
   os: string;
   power: "ac" | "battery" | "unknown";
+  /**
+   * Screen size and pixel ratio, e.g. "2560x1440@1x". One laptop on its own
+   * Retina panel and on an external monitor draws four times as many pixels in
+   * one case, so the two are different conditions.
+   */
+  display: string;
+}
+
+function displayOf(record: RunRecord): string {
+  const physical = record.environment.host?.display;
+  if (physical) return describeDisplay(physical);
+  // Older records and platforms without a system reading fall back to what the
+  // page saw; on a desktop that is Playwright's emulation, not the monitor.
+  const { screen, devicePixelRatio } = record.environment;
+  const size = screen ? `${screen.width}x${screen.height}` : "unknown";
+  return devicePixelRatio ? `${size}@${devicePixelRatio}x` : size;
 }
 
 export function deviceConditionOf(record: RunRecord): DeviceCondition {
@@ -30,6 +47,7 @@ export function deviceConditionOf(record: RunRecord): DeviceCondition {
     cpu: host?.cpu ?? "unknown",
     os: host?.osVersion ?? record.environment.operatingSystem ?? "unknown",
     power: record.environment.power?.start.source ?? "unknown",
+    display: displayOf(record),
   };
 }
 
