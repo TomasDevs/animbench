@@ -9,6 +9,7 @@ import type { TimingConfig } from "../types/config.js";
 import { DEFAULT_TIMING } from "../types/config.js";
 import type { CpuSample, DiscardReason } from "../types/record.js";
 import { CpuSampler } from "./cpu-sampler.js";
+import type { GpuUsageReader } from "../diagnostics/gpu-usage.js";
 
 export interface PageViewport {
   width: number;
@@ -121,6 +122,7 @@ export async function measureOnce(
   page: Page,
   url: string,
   timing: TimingConfig = DEFAULT_TIMING,
+  gpuUsage: GpuUsageReader | null = null,
 ): Promise<SingleRunOutcome> {
   try {
     try {
@@ -140,7 +142,7 @@ export async function measureOnce(
     }
 
     const sampler = timing.cpuSampleIntervalMs
-      ? await CpuSampler.attach(page, timing.cpuSampleIntervalMs)
+      ? await CpuSampler.attach(page, timing.cpuSampleIntervalMs, gpuUsage)
       : undefined;
 
     let cpuSamples: CpuSample[] | undefined;

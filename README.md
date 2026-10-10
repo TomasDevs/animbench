@@ -75,9 +75,10 @@ metrics are then computed from that window only.
 - **NDJSON** — one line per run with raw timestamps, CPU samples, the machine,
   its power state and, for discarded runs, the reason.
 - **CSV** — one row per combination and device, merging any number of NDJSON
-  files: frame-interval percentiles, frames over
-  budget, achieved vs. achievable refresh rate, and main-thread and process CPU
-  shares.
+  files: frame-interval percentiles, frames over budget, achieved vs. achievable
+  refresh rate, main-thread and process CPU shares, and GPU utilisation read
+  from the operating system (whole GPU on macOS, the browser's GPU process on
+  Windows).
 
 ## Documentation
 

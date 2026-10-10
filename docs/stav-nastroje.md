@@ -203,8 +203,11 @@ nejhorší procento snímků už na 48 %.
 - **Jedno zařízení.** Všechna dosavadní data pocházejí z jednoho stroje, jednoho
   prohlížeče (Chrome 151) a jednoho grafického rozhraní (Metal).
 - **Kompozitor není vidět.** Čas hlavního vlákna pokrývá jen vlákno stránky.
-- **„CPU čas GPU procesu" není vytížení grafické karty**, jen čas procesoru,
-  který ji řídí. Prohlížeč vytížení GPU nevystavuje.
+- **Vytížení grafické karty se čte z operačního systému**, protože ho prohlížeč
+  nevystavuje: na macOS za celou grafiku (včetně plochy a ostatních aplikací),
+  na Windows jen za proces grafiky prohlížeče, na Linuxu a Androidu vůbec.
+  Srovnatelné je jen mezi technikami na jednom zařízení. „CPU čas GPU procesu"
+  je jiný údaj — čas procesoru, který grafiku řídí.
 - **Spotřeba se neměří.** Rozhraní prohlížečů pro baterii je omezené a systémové
   měření by mísilo prohlížeč se zbytkem stroje.
 - **Stránka na desktopu nevidí skutečný displej.** Playwright při pevné

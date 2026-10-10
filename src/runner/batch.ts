@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { readEnvironment } from "../diagnostics/environment.js";
 import { keepAwake } from "../diagnostics/keep-awake.js";
+import { openForBatch, type GpuUsageReader } from "../diagnostics/gpu-usage.js";
 import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from "../types/config.js";
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
@@ -117,6 +118,8 @@ export async function runBatch(
   const removeInterruptHandler = installInterruptHandler(writer);
   const awake = await keepAwake();
   const rules = qualityRules(config.batch);
+  // Assigned inside the target callback, which control-flow analysis cannot see.
+  let gpuReader = null as GpuUsageReader | null;
 
   const discardReasons: Record<string, number> = {};
   let valid = 0;
@@ -129,9 +132,20 @@ export async function runBatch(
       { ...config.browser, appUrl: config.target.url },
       async (target) => {
         const { page } = target;
+        const base = await readEnvironment(target, config.browser.viewport);
+        const gpu = await openForBatch(
+          target.kind,
+          Boolean(config.timing.cpuSampleIntervalMs),
+          page.context().browser(),
+        );
+        gpuReader = gpu.reader;
         const environment = {
-          ...(await readEnvironment(target, config.browser.viewport)),
+          ...base,
           keepAwake: awake.method,
+          gpuUsageScope: gpu.available ? (gpu.reader?.scope ?? null) : null,
+          ...(base.capabilities
+            ? { capabilities: { ...base.capabilities, gpuUtilization: gpu.available } }
+            : {}),
         };
 
         if (config.browser.requireHardwareAcceleration && !environment.hardwareAccelerated) {
@@ -161,7 +175,7 @@ export async function runBatch(
           }
           let outcome: SingleRunOutcome;
           try {
-            outcome = await measureOnce(page, run.url, config.timing);
+            outcome = await measureOnce(page, run.url, config.timing, gpuReader);
           } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             if (isFatalBrowserError(detail)) {
@@ -241,6 +255,7 @@ export async function runBatch(
       ...(abortedAfter ? { abortedAfter } : {}),
     };
   } finally {
+    gpuReader?.close();
     awake.release();
     removeInterruptHandler();
     await writer.close();

@@ -458,6 +458,7 @@ pak následují parametry matice, počty běhů a metriky.
 | `mainThreadOtherRatio_mean` | práce hlavního vlákna mimo tyto tři kategorie |
 | `rendererCpuRatio_mean` | CPU čas procesu stránky; může přesáhnout 1 (víc vláken) |
 | `gpuProcessCpuRatio_mean` | CPU čas procesu, který řídí grafickou kartu |
+| `gpuBusyRatio_mean` | vytížení grafické karty podle operačního systému (viz níže) |
 | `cpuSampleCount_mean` | počet vzorků uvnitř měřeného okna |
 
 Sloupce procesoru jsou prázdné, když dávka běžela bez vzorkování.
@@ -508,6 +509,25 @@ Dvě omezení pro interpretaci:
 - čas hlavního vlákna pokrývá jen vlákno měřené stránky, ne kompozitor;
 - „CPU čas GPU procesu" je čas procesoru, který grafickou kartu řídí, **ne
   vytížení grafické karty**. Prohlížeč vytížení GPU nevystavuje.
+
+### Vytížení grafické karty
+
+Prohlížeč vytížení GPU nevystavuje, a tak ho nástroj při vzorkování procesoru
+čte přímo z operačního systému — jako jediný údaj, který nepochází z prohlížeče.
+Co číslo pokrývá, se liší podle systému a zapisuje se ke každému běhu
+(`environment.gpuUsageScope`):
+
+| systém | zdroj | pokrývá |
+|---|---|---|
+| macOS | `ioreg`, statistiky grafického ovladače | celou grafickou kartu, včetně plochy a ostatních aplikací (`system`) |
+| Windows | výkonnostní čítače *GPU Engine* | jen proces grafiky prohlížeče (`browser-gpu-process`) |
+| Linux, Android | — | neměří se; zapíše se jako nedostupné |
+
+Na macOS je číslo hrubší: zahrnuje vše, co se na obrazovce děje, takže jednotlivý
+běh může vyskočit kvůli jiné aplikaci. Hodnoty se proto srovnávají jen mezi
+technikami na jednom zařízení, ne mezi systémy. U telefonu se GPU počítače, ke
+kterému je připojený, nikdy nečte. Na Windows zatím nebylo ověřeno na skutečném
+stroji.
 
 ### Režie
 
