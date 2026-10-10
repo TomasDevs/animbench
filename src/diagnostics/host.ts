@@ -6,6 +6,19 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/**
+ * The physical display the browser draws to. Read from the system, because
+ * the page only sees what Playwright emulates: a desktop context reports a
+ * screen the size of its viewport and a pixel ratio of 1 on any monitor.
+ */
+export interface DisplayInfo {
+  name: string | null;
+  /** As the system presents it, e.g. "2560x1440". */
+  resolution: string;
+  refreshHz: number | null;
+  connection: "internal" | "external" | null;
+}
+
 export interface HostInfo {
   platform: string;
   osVersion: string | null;
@@ -14,6 +27,37 @@ export interface HostInfo {
   cpu: string;
   cpuCores: number;
   memoryGb: number;
+  /** The main display, or null where the system does not say. */
+  display?: DisplayInfo | null;
+}
+
+/** One stable label per display, used to keep display conditions apart. */
+export function describeDisplay(display: DisplayInfo): string {
+  const refresh = display.refreshHz ? `@${display.refreshHz}Hz` : "";
+  return [display.name, `${display.resolution}${refresh}`].filter(Boolean).join(" ");
+}
+
+/** Picks the main display from `system_profiler SPDisplaysDataType -json`. */
+export function parseMacDisplays(json: string): DisplayInfo | null {
+  let data: { SPDisplaysDataType?: { spdisplays_ndrvs?: Record<string, string>[] }[] };
+  try {
+    data = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  const displays = (data.SPDisplaysDataType ?? []).flatMap((gpu) => gpu.spdisplays_ndrvs ?? []);
+  const main = displays.find((display) => display["spdisplays_main"] === "spdisplays_yes") ?? displays[0];
+  if (!main) return null;
+
+  const resolution = /(\d+)\s*x\s*(\d+)(?:\s*@\s*([\d.]+)Hz)?/.exec(main["_spdisplays_resolution"] ?? "");
+  if (!resolution) return null;
+  const connection = main["spdisplays_connection_type"];
+  return {
+    name: main["_name"] ?? null,
+    resolution: `${resolution[1]}x${resolution[2]}`,
+    refreshHz: resolution[3] ? Math.round(Number(resolution[3])) : null,
+    connection: connection === "spdisplays_internal" ? "internal" : connection ? "external" : null,
+  };
 }
 
 export interface PowerState {
@@ -147,6 +191,12 @@ async function readOsVersion(): Promise<string | null> {
  * Recorded automatically because hand-written labels went wrong once already:
  * a batch measured at 60 Hz carried a "75Hz" label from an earlier setup.
  */
+async function readDisplay(): Promise<DisplayInfo | null> {
+  if (process.platform !== "darwin") return null;
+  const json = await output("system_profiler", ["SPDisplaysDataType", "-json"]);
+  return json ? parseMacDisplays(json) : null;
+}
+
 export async function readHostInfo(): Promise<HostInfo> {
   const cpus = os.cpus();
   return {
@@ -156,5 +206,6 @@ export async function readHostInfo(): Promise<HostInfo> {
     cpu: cpus[0]?.model.trim() ?? "unknown",
     cpuCores: cpus.length,
     memoryGb: Math.round((os.totalmem() / 2 ** 30) * 10) / 10,
+    display: await readDisplay(),
   };
 }

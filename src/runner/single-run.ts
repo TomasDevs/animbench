@@ -14,6 +14,8 @@ export interface PageViewport {
   width: number;
   height: number;
   devicePixelRatio: number | null;
+  /** As the page sees it: emulated on a desktop, the real screen on a phone. */
+  screen: { width: number; height: number };
 }
 
 export interface SingleRunSuccess {
@@ -175,6 +177,7 @@ export async function measureOnce(
       width: window.innerWidth,
       height: window.innerHeight,
       devicePixelRatio: window.devicePixelRatio,
+      screen: { width: window.screen.width, height: window.screen.height },
     }));
     return { ok: true, result, viewport, ...(cpuSamples ? { cpuSamples } : {}) };
   } catch (error) {

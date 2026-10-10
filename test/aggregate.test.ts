@@ -198,3 +198,24 @@ test("a failed run of a sampled batch stays with the sampled runs", () => {
   assert.deepEqual(sampled?.discardReasons, { timeout: 1 });
   assert.deepEqual(groups.find((g) => g.cpuSampleIntervalMs === null)?.discardReasons, {});
 });
+
+test("one laptop on its own panel and on an external monitor forms two groups", () => {
+  const on = (name: string, resolution: string, connection: "internal" | "external"): RunRecord => {
+    const record = onDevice(makeRecord(), "Mac", "ac");
+    const host = record.environment.host!;
+    return { ...record, environment: { ...record.environment, host: { ...host, display: { name, resolution, refreshHz: 60, connection } } } };
+  };
+  const groups = aggregateRuns([
+    on("DELL U2719D", "2560x1440", "external"),
+    on("DELL U2719D", "2560x1440", "external"),
+    on("Color LCD", "1710x1112", "internal"),
+  ]);
+  assert.deepEqual(groups.map((g) => g.device.display).sort(), ["Color LCD 1710x1112@60Hz", "DELL U2719D 2560x1440@60Hz"]);
+  assert.equal(groups.find((g) => g.device.display.startsWith("DELL"))?.runsValid, 2);
+});
+
+test("records without a system display reading fall back to what the page saw", () => {
+  const ratio = (r: number): RunRecord => ({ ...makeRecord(), environment: { ...makeRecord().environment, devicePixelRatio: r } });
+  const groups = aggregateRuns([ratio(1), ratio(2)]);
+  assert.deepEqual(groups.map((g) => g.device.display).sort(), ["unknown@1x", "unknown@2x"]);
+});

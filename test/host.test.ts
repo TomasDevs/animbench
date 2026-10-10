@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parsePmset, parseWindowsBattery } from "../src/diagnostics/host.js";
+import { parseMacDisplays, parsePmset, parseWindowsBattery } from "../src/diagnostics/host.js";
 
 test("pmset on AC with a full battery", () => {
   const text = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=21364835)\t100%; charged; 0:00 remaining present: true\n";
@@ -36,4 +36,20 @@ test("Windows battery status codes map to the power source", () => {
 
 test("a Windows machine reporting no battery is on mains power", () => {
   assert.deepEqual(parseWindowsBattery(""), { source: "ac", batteryPercent: null, batteryState: null });
+});
+
+test("the main display is read from system_profiler", () => {
+  // Captured on a MacBook Air M3 with only its built-in panel.
+  const internal = JSON.stringify({ SPDisplaysDataType: [{ spdisplays_ndrvs: [{
+    _name: "Color LCD", _spdisplays_pixels: "3420 x 2224", _spdisplays_resolution: "1710 x 1112 @ 60.00Hz",
+    spdisplays_connection_type: "spdisplays_internal", spdisplays_main: "spdisplays_yes",
+  }] }] });
+  assert.deepEqual(parseMacDisplays(internal), { name: "Color LCD", resolution: "1710x1112", refreshHz: 60, connection: "internal" });
+
+  const external = JSON.stringify({ SPDisplaysDataType: [{ spdisplays_ndrvs: [
+    { _name: "Color LCD", _spdisplays_resolution: "1710 x 1112 @ 60.00Hz", spdisplays_connection_type: "spdisplays_internal" },
+    { _name: "DELL U2719D", _spdisplays_resolution: "2560 x 1440 @ 59.95Hz", spdisplays_connection_type: "spdisplays_displayport", spdisplays_main: "spdisplays_yes" },
+  ] }] });
+  assert.deepEqual(parseMacDisplays(external), { name: "DELL U2719D", resolution: "2560x1440", refreshHz: 60, connection: "external" });
+  assert.equal(parseMacDisplays("not json"), null);
 });

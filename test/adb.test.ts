@@ -6,6 +6,7 @@ import {
   parseAdbDevices,
   parseDumpsysBattery,
   parseGetprop,
+  parseWmSize,
 } from "../src/android/adb.js";
 
 // Captured from the Android 16 emulator used to develop the Android target.
@@ -86,4 +87,10 @@ test("kernel CPU ranges are counted including split clusters", () => {
   assert.equal(countCpuRange("0"), 1);
   assert.equal(countCpuRange("0-3,6-7"), 6);
   assert.equal(countCpuRange(""), 0);
+});
+
+test("the phone display comes from wm size, honouring an override", () => {
+  assert.equal(parseWmSize("Physical size: 1080x2400\n")?.resolution, "1080x2400");
+  assert.equal(parseWmSize("Physical size: 1440x3120\nOverride size: 1080x2340\n")?.resolution, "1080x2340");
+  assert.equal(parseWmSize(""), null);
 });

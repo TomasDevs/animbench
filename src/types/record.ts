@@ -27,6 +27,11 @@ export interface RunEnvironment {
    */
   viewport: { width: number; height: number };
   devicePixelRatio: number | null;
+  /**
+   * Screen size as the page saw it. On a desktop this is Playwright's
+   * emulation matching the viewport; the physical display is in host.display.
+   */
+  screen?: { width: number; height: number };
   host?: HostInfo;
   capabilities?: Capabilities;
   /** What kept the machine from sleeping during the batch; null if nothing could. */
