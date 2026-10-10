@@ -53,6 +53,7 @@ export function buildRunRecord(
   record.endTime = result.endTime;
   record.overflowed = result.overflowed;
   if (outcome.cpuSamples) record.cpuSamples = outcome.cpuSamples;
+  if (outcome.gpuIdleUtilization !== undefined) record.gpuIdleUtilization = outcome.gpuIdleUtilization;
 
   if (context.warmup) {
     record.discardReason = "warmup";

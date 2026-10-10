@@ -118,6 +118,8 @@ export interface RunRecord {
    * runs are kept apart during aggregation.
    */
   cpuSampleIntervalMs?: number;
+  /** GPU utilisation in percent with the scene built but not yet animating. */
+  gpuIdleUtilization?: number | null;
 
   environment: RunEnvironment;
   labels?: Record<string, string>;
