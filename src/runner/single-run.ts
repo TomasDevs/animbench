@@ -24,6 +24,8 @@ export interface SingleRunSuccess {
   result: BenchResult;
   viewport: PageViewport;
   cpuSamples?: CpuSample[];
+  /** Median GPU utilisation, in percent, with the scene built but not moving. */
+  gpuIdleUtilization?: number | null;
 }
 
 export interface SingleRunFailure {
@@ -114,6 +116,25 @@ async function waitForDone(page: Page, timeoutMs: number): Promise<void> {
   }
 }
 
+const IDLE_GPU_READINGS = 3;
+
+/**
+ * Taken between ready and start, when the scene is on screen but still. On a
+ * system-wide reading it is the reference that separates the animation's load
+ * from whatever else the machine draws at that moment.
+ */
+async function readIdleGpu(reader: GpuUsageReader): Promise<number | null> {
+  const readings: number[] = [];
+  for (let index = 0; index < IDLE_GPU_READINGS; index++) {
+    if (index > 0) await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const reading = await reader.read();
+    if (reading !== null) readings.push(reading);
+  }
+  if (readings.length === 0) return null;
+  readings.sort((a, b) => a - b);
+  return readings[Math.floor(readings.length / 2)] as number;
+}
+
 /**
  * Reads the raw result and nothing else. All derived figures are computed in
  * Node, so the measured thread only ever hands over an array.
@@ -140,6 +161,8 @@ export async function measureOnce(
     if (readyError) {
       throw new ContractError(`page reported: ${readyError.message}`, "page-error");
     }
+
+    const gpuIdleUtilization = gpuUsage ? await readIdleGpu(gpuUsage) : undefined;
 
     const sampler = timing.cpuSampleIntervalMs
       ? await CpuSampler.attach(page, timing.cpuSampleIntervalMs, gpuUsage)
@@ -181,7 +204,13 @@ export async function measureOnce(
       devicePixelRatio: window.devicePixelRatio,
       screen: { width: window.screen.width, height: window.screen.height },
     }));
-    return { ok: true, result, viewport, ...(cpuSamples ? { cpuSamples } : {}) };
+    return {
+      ok: true,
+      result,
+      viewport,
+      ...(cpuSamples ? { cpuSamples } : {}),
+      ...(gpuIdleUtilization !== undefined ? { gpuIdleUtilization } : {}),
+    };
   } catch (error) {
     if (error instanceof ContractError) {
       return { ok: false, reason: error.reason, detail: error.message };

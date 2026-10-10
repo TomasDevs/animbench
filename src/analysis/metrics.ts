@@ -4,6 +4,10 @@ import { computeCpuMetrics, type CpuMetrics } from "./cpu.js";
 import { frameIntervals, mean, percentile, standardDeviation } from "./statistics.js";
 
 export interface RunMetrics extends CpuMetrics {
+  /** GPU utilisation with the scene still, as a share. */
+  gpuIdleRatio: number;
+  /** GPU utilisation during the window above the idle reading of the same run. */
+  gpuExtraRatio: number;
   /** Frames the metrics were computed from, after any steady-state trim. */
   frameCount: number;
   durationMs: number;
@@ -121,8 +125,13 @@ export function computeRunMetrics(record: RunRecord): RunMetrics | null {
     timestamps[timestamps.length - 1] as number,
   );
 
+  const gpuIdleRatio =
+    typeof record.gpuIdleUtilization === "number" ? record.gpuIdleUtilization / 100 : Number.NaN;
+
   return {
     ...cpu,
+    gpuIdleRatio,
+    gpuExtraRatio: cpu.gpuBusyRatio - gpuIdleRatio,
     frameCount: timestamps.length,
     unreliablePercentiles,
     durationMs: (timestamps[timestamps.length - 1] as number) - (timestamps[0] as number),

@@ -30,6 +30,8 @@ const REPORTED = [
   ["rendererCpuRatio", "mean"],
   ["gpuProcessCpuRatio", "mean"],
   ["gpuBusyRatio", "mean"],
+  ["gpuIdleRatio", "mean"],
+  ["gpuExtraRatio", "mean"],
   ["cpuSampleCount", "mean"],
 ] as const;
 

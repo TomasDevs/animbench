@@ -459,6 +459,8 @@ pak následují parametry matice, počty běhů a metriky.
 | `rendererCpuRatio_mean` | CPU čas procesu stránky; může přesáhnout 1 (víc vláken) |
 | `gpuProcessCpuRatio_mean` | CPU čas procesu, který řídí grafickou kartu |
 | `gpuBusyRatio_mean` | vytížení grafické karty podle operačního systému (viz níže) |
+| `gpuIdleRatio_mean` | vytížení grafické karty se scénou postavenou, ale v klidu |
+| `gpuExtraRatio_mean` | rozdíl obou; na macOS se šumem, viz níže |
 | `cpuSampleCount_mean` | počet vzorků uvnitř měřeného okna |
 
 Sloupce procesoru jsou prázdné, když dávka běžela bez vzorkování.
@@ -528,6 +530,14 @@ běh může vyskočit kvůli jiné aplikaci. Hodnoty se proto srovnávají jen m
 technikami na jednom zařízení, ne mezi systémy. U telefonu se GPU počítače, ke
 kterému je připojený, nikdy nečte. Na Windows zatím nebylo ověřeno na skutečném
 stroji.
+
+Před každým během se vytížení GPU přečte i v klidu — mezi ohlášením
+připravenosti a spuštěním, tedy se scénou na obrazovce, ale bez pohybu (medián
+tří vzorků po sekundě, `gpuIdleUtilization`). Na macOS je tento údaj velmi
+rozkolísaný: v ověřovacím měření se pohyboval mezi 0 a 15 % a rozdíl „během
+animace minus klid" měl rozptyl zhruba dvojnásobný oproti samotné hodnotě během
+animace, místy i zápornou hodnotu. Klidová hodnota proto slouží jako kontrola
+(vysoký klid prozrazuje jinou zátěž stroje), ne k odečítání běh po běhu.
 
 ### Režie
 

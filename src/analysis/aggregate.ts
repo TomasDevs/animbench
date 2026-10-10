@@ -120,6 +120,8 @@ const METRIC_KEYS = [
   "rendererCpuRatio",
   "gpuProcessCpuRatio",
   "gpuBusyRatio",
+  "gpuIdleRatio",
+  "gpuExtraRatio",
   "cpuSampleCount",
 ] as const satisfies readonly (keyof RunMetrics)[];
 
