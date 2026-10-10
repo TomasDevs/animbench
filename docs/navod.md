@@ -154,6 +154,27 @@ klíč, podle kterého se výsledky seskupují.
 Názvy parametrů jsou libovolné. Nástroj jim nerozumí a nepotřebuje — jen je
 předá a zaznamená.
 
+**Svázané parametry.** Některé parametry dávají smysl jen spolu — třeba šířka
+měřeného okna, která závisí na počtu prvků. Položkou matice pak může být objekt,
+který nastaví několik parametrů najednou:
+
+```json
+"matrix": {
+  "technique": ["raf", "css-transition"],
+  "size": [
+    { "complexity": 100,  "window": 10000 },
+    { "complexity": 500,  "window": 20000 },
+    { "complexity": 2000, "window": 20000 }
+  ]
+}
+```
+
+Vzniknou 2 × 3 = 6 kombinací a všechny se prokládají v jednom náhodném pořadí.
+Jméno takové dimenze (`size`) je jen popisek, stránce se nepředává. Všechny
+objekty jedné dimenze musí nastavovat stejné parametry a žádný parametr nesmí
+nastavovat dvě dimenze zároveň — jinak se konfigurace odmítne dřív, než se cokoli
+změří.
+
 ### timing
 
 | pole | výchozí | význam |
@@ -199,7 +220,9 @@ viděla, ne ten z konfigurace.
 
 ### output a labels
 
-`ndjsonPath` je povinná, `csvPath` volitelná. `labels` jsou libovolné popisky
+`ndjsonPath` je povinná, `csvPath` volitelná. Relativní cesty se počítají od
+konfiguračního souboru, ne od složky, ze které se nástroj spustí — konfigurace
+uložená u studie tak zapisuje do studie, ať se nástroj spouští odkudkoli. `labels` jsou libovolné popisky
 zapsané ke každému běhu — hodí se na označení zařízení nebo účelu měření.
 
 ---

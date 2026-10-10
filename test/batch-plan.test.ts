@@ -94,3 +94,16 @@ test("zero warm-ups produce only measured runs", () => {
   assert.equal(runs.length, 12);
   assert.ok(runs.every((run) => !run.warmup));
 });
+
+test("linked sets keep every element count interleaved in one shuffled order", () => {
+  const config = makeConfig();
+  config.target.matrix = {
+    technique: ["raf", "css"],
+    size: [{ complexity: "100", window: "10000" }, { complexity: "2000", window: "20000" }],
+  };
+  const measured = planBatch(config).runs.filter((run) => !run.warmup);
+  assert.equal(measured.length, 2 * 2 * 3);
+  const firstHalf = measured.slice(0, measured.length / 2).map((run) => run.combination["complexity"]);
+  assert.ok(new Set(firstHalf).size === 2, "both sizes appear early, not in separate blocks");
+  assert.ok(measured.every((run) => run.url.includes(`window=${run.combination["window"]}`)));
+});

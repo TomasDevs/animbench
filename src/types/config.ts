@@ -3,9 +3,17 @@
  * knowledge of any application, technique or scene. Parameter values are
  * opaque strings, combined and recorded but never interpreted.
  */
-export type ParameterMatrix = Record<string, readonly string[]>;
-
 export type Combination = Record<string, string>;
+
+/**
+ * A dimension lists either single values, passed under the dimension's name,
+ * or linked sets of parameters that only make sense together, such as a
+ * measured window that depends on the element count. For linked sets the
+ * dimension's name is just a label and is not passed to the page.
+ */
+export type MatrixDimension = readonly string[] | readonly Combination[];
+
+export type ParameterMatrix = Record<string, MatrixDimension>;
 
 export interface TargetConfig {
   url: string;
@@ -91,7 +99,7 @@ export function expandMatrix(matrix: ParameterMatrix): Combination[] {
     const expanded: Combination[] = [];
     for (const partial of combinations) {
       for (const value of values) {
-        expanded.push({ ...partial, [name]: value });
+        expanded.push(typeof value === "string" ? { ...partial, [name]: value } : { ...partial, ...value });
       }
     }
     combinations = expanded;
