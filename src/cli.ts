@@ -265,6 +265,13 @@ async function commandBatch(configPath: string): Promise<void> {
     if (sequence === 0 && host) console.log(`Machine:  ${describeHost(host)}`);
     if (sequence === 0 && power) console.log(`Power:    ${describePower(power.start)}`);
     if (sequence === 0) {
+      // Shown at once: on an adaptive display a wrong rate is the first thing
+      // to catch, and the batch should be stopped before hours are spent.
+      const hz = record.baseline?.refreshRateHz;
+      const expected = config.batch.expectedRefreshRateHz;
+      if (hz !== undefined) {
+        console.log(`Display:  ${hz.toFixed(1)} Hz measured${expected ? `, ${expected} Hz expected` : ", not enforced"}`);
+      }
       const awake = record.environment.keepAwake;
       console.log(
         awake ? `Sleep:    blocked (${awake})` : "WARNING:  sleep could not be blocked; keep the machine awake by hand",

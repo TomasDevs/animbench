@@ -6,6 +6,7 @@ import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from ".
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
 import { buildRunRecord } from "./build-record.js";
+import { checkQuality, qualityRules } from "./quality.js";
 import { measureOnce, type SingleRunOutcome } from "./single-run.js";
 import { withTarget } from "./target.js";
 
@@ -115,6 +116,7 @@ export async function runBatch(
   const writer = new NdjsonWriter(config.output.ndjsonPath);
   const removeInterruptHandler = installInterruptHandler(writer);
   const awake = await keepAwake();
+  const rules = qualityRules(config.batch);
 
   const discardReasons: Record<string, number> = {};
   let valid = 0;
@@ -191,6 +193,13 @@ export async function runBatch(
             },
             outcome,
           );
+
+          const failure = checkQuality(record, rules);
+          if (failure) {
+            record.valid = false;
+            record.discardReason = failure.reason;
+            record.discardDetail = failure.detail;
+          }
 
           await writer.write(record);
 

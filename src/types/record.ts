@@ -10,7 +10,9 @@ export type DiscardReason =
   | "contract-violation"
   | "stale-build"
   | "timeout"
-  | "navigation-error";
+  | "navigation-error"
+  | "refresh-mismatch"
+  | "too-few-frames";
 
 export interface RunEnvironment {
   browser: string | null;

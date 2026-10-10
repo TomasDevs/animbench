@@ -154,6 +154,27 @@ klíč, podle kterého se výsledky seskupují.
 Názvy parametrů jsou libovolné. Nástroj jim nerozumí a nepotřebuje — jen je
 předá a zaznamená.
 
+**Svázané parametry.** Některé parametry dávají smysl jen spolu — třeba šířka
+měřeného okna, která závisí na počtu prvků. Položkou matice pak může být objekt,
+který nastaví několik parametrů najednou:
+
+```json
+"matrix": {
+  "technique": ["raf", "css-transition"],
+  "size": [
+    { "complexity": 100,  "window": 10000 },
+    { "complexity": 500,  "window": 20000 },
+    { "complexity": 2000, "window": 20000 }
+  ]
+}
+```
+
+Vzniknou 2 × 3 = 6 kombinací a všechny se prokládají v jednom náhodném pořadí.
+Jméno takové dimenze (`size`) je jen popisek, stránce se nepředává. Všechny
+objekty jedné dimenze musí nastavovat stejné parametry a žádný parametr nesmí
+nastavovat dvě dimenze zároveň — jinak se konfigurace odmítne dřív, než se cokoli
+změří.
+
 ### timing
 
 | pole | výchozí | význam |
@@ -174,6 +195,9 @@ chlazených strojích má smysl ji zvýšit.
 | `warmupRuns` | 1 | rozehřívací běhy, které se zahazují |
 | `shuffle` | true | náhodné pořadí měřených běhů |
 | `seed` | náhodný | semínko míchání |
+| `expectedRefreshRateHz` | — | očekávaná frekvence displeje; běh s klidovou frekvencí mimo toleranci se zahodí |
+| `refreshTolerance` | 0,1 | tolerance k očekávané frekvenci (0,1 = ±10 %) |
+| `minFramesInWindow` | — | běh s menším počtem snímků v měřeném okně se zahodí |
 
 Rozehřívací běhy proběhnou vždy jako první a do výsledků nevstupují. Měřené
 běhy se zamíchají, aby postupné zahřívání zařízení nezvýhodnilo tu kombinaci,
@@ -181,6 +205,14 @@ která by jinak běžela první.
 
 Semínko se vždy vypíše a zapíše ke každému běhu, i když se nezadá — jinak by
 pořadí nešlo zopakovat.
+
+Pravidla zahození se uplatní přímo při měření: běh, který je nesplní, se zapíše
+jako zahozený s důvodem `refresh-mismatch` nebo `too-few-frames` a s podrobností.
+Data se tak nemusí dodatečně čistit a v souhrnu je vidět, kolik běhů které
+pravidlo vyřadilo. Naměřená frekvence displeje se vypíše hned po prvním běhu.
+U displejů s proměnlivou frekvencí (telefony s 90 nebo 120 Hz) očekávanou
+frekvenci nenastavujte — v klidu může displej spadnout na nižší frekvenci
+a pravidlo by zahodilo všechny běhy.
 
 ### browser
 
@@ -199,7 +231,9 @@ viděla, ne ten z konfigurace.
 
 ### output a labels
 
-`ndjsonPath` je povinná, `csvPath` volitelná. `labels` jsou libovolné popisky
+`ndjsonPath` je povinná, `csvPath` volitelná. Relativní cesty se počítají od
+konfiguračního souboru, ne od složky, ze které se nástroj spustí — konfigurace
+uložená u studie tak zapisuje do studie, ať se nástroj spouští odkudkoli. `labels` jsou libovolné popisky
 zapsané ke každému běhu — hodí se na označení zařízení nebo účelu měření.
 
 ---
@@ -361,6 +395,8 @@ Důvody zahození:
 | `page-error` | stránka ohlásila `__benchError` |
 | `contract-violation` | výsledek nemá očekávaný tvar |
 | `stale-build` | stránka je připravená, ale nevystavuje `__benchStart` |
+| `refresh-mismatch` | klidová frekvence se liší od `expectedRefreshRateHz` víc, než dovoluje tolerance |
+| `too-few-frames` | v měřeném okně je méně snímků než `minFramesInWindow` |
 | `timeout` | stránka neohlásila připravenost nebo dokončení včas |
 | `navigation-error` | adresu se nepodařilo načíst |
 
