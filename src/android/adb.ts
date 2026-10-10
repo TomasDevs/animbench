@@ -155,7 +155,12 @@ export class AdbDevice {
   }
 
   async readPower(): Promise<PowerState> {
-    return parseDumpsysBattery(await this.shell("dumpsys battery").catch(() => ""));
+    const [battery, saver] = await Promise.all([
+      this.shell("dumpsys battery").catch(() => ""),
+      this.shell("settings get global low_power").catch(() => ""),
+    ]);
+    const mode = saver.trim();
+    return { ...parseDumpsysBattery(battery), lowPowerMode: mode === "1" ? true : mode === "0" ? false : null };
   }
 }
 

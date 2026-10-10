@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseMacDisplays, parsePmset, parseWindowsBattery } from "../src/diagnostics/host.js";
+import { parseMacDisplays, parsePmset, parsePmsetLowPower, parseWindowsBattery } from "../src/diagnostics/host.js";
 
 test("pmset on AC with a full battery", () => {
   const text = "Now drawing from 'AC Power'\n -InternalBattery-0 (id=21364835)\t100%; charged; 0:00 remaining present: true\n";
@@ -52,4 +52,12 @@ test("the main display is read from system_profiler", () => {
   ] }] });
   assert.deepEqual(parseMacDisplays(external), { name: "DELL U2719D", resolution: "2560x1440", refreshHz: 60, connection: "external" });
   assert.equal(parseMacDisplays("not json"), null);
+});
+
+test("low power mode is read in both pmset spellings", () => {
+  assert.equal(parsePmsetLowPower(" lowpowermode         0\n sleep 1\n"), false);
+  assert.equal(parsePmsetLowPower(" lowpowermode         1\n"), true);
+  assert.equal(parsePmsetLowPower(" powermode            1\n"), true);
+  assert.equal(parsePmsetLowPower(" powermode            2\n"), false, "2 is high power");
+  assert.equal(parsePmsetLowPower(" sleep 1\n"), null);
 });

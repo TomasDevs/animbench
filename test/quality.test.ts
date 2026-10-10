@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkQuality } from "../src/runner/quality.js";
+import { checkQuality, powerBlocker } from "../src/runner/quality.js";
 import type { RunRecord } from "../src/types/record.js";
 
 function makeRecord(refreshRateHz: number, frames: number, window?: [number, number]): RunRecord {
@@ -42,4 +42,32 @@ test("frames are counted inside the measured window, not over the whole run", ()
 test("runs already discarded are left with their original reason", () => {
   const warmup = { ...makeRecord(30, 5), valid: false, discardReason: "warmup" as const };
   assert.equal(checkQuality(warmup, { expectedRefreshRateHz: 60, minFramesInWindow: 100 }), null);
+});
+
+const power = (source: "ac" | "battery" | "unknown", batteryPercent: number | null) => ({
+  source,
+  batteryPercent,
+  batteryState: null,
+});
+
+test("the batch stops when the power source is not the required one", () => {
+  assert.equal(powerBlocker(power("ac", 100), { requirePowerSource: "ac" }), null);
+  assert.match(powerBlocker(power("battery", 95), { requirePowerSource: "ac" }) ?? "", /requires mains.*runs on battery/);
+  assert.match(powerBlocker(power("ac", 100), { requirePowerSource: "battery" }) ?? "", /requires battery/);
+  assert.equal(powerBlocker(power("battery", 30), {}), null, "no rule, no stop");
+});
+
+test("the batch stops once the battery falls below the floor", () => {
+  const rules = { requirePowerSource: "battery" as const, minBatteryPercent: 80 };
+  assert.equal(powerBlocker(power("battery", 80), rules), null);
+  assert.match(powerBlocker(power("battery", 79), rules) ?? "", /79 %, below the 80 %/);
+  assert.match(powerBlocker(power("battery", null), rules) ?? "", /cannot be read/);
+});
+
+test("a run during which the charger was pulled is discarded", () => {
+  const record = makeRecord(60, 300);
+  record.environment.power = { start: power("ac", 100), end: power("battery", 100) };
+  assert.equal(checkQuality(record, { requirePowerSource: "ac" })?.reason, "power-changed");
+  record.environment.power = { start: power("ac", 100), end: power("ac", 100) };
+  assert.equal(checkQuality(record, { requirePowerSource: "ac" }), null);
 });

@@ -65,6 +65,12 @@ export interface PowerState {
   batteryPercent: number | null;
   /** As the OS words it, e.g. "charging", "discharging", "charged". */
   batteryState: string | null;
+  /**
+   * The system's low power mode, which throttles the CPU and GPU. A run on
+   * battery with it on measures that setting, not the battery. Null where the
+   * platform does not say.
+   */
+  lowPowerMode?: boolean | null;
 }
 
 const UNKNOWN_POWER: PowerState = { source: "unknown", batteryPercent: null, batteryState: null };
@@ -77,6 +83,15 @@ async function output(command: string, args: string[]): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Parses `pmset -g`. Older macOS reports `lowpowermode 0|1`, newer
+ * `powermode 0|1|2`, where 1 is low power.
+ */
+export function parsePmsetLowPower(text: string): boolean | null {
+  const mode = /^\s*(lowpowermode|powermode)\s+(\d+)/m.exec(text);
+  return mode ? mode[2] === "1" : null;
 }
 
 /** Parses `pmset -g batt`. */
@@ -141,8 +156,9 @@ async function readLinuxPower(): Promise<PowerState> {
 export async function readPowerState(): Promise<PowerState> {
   switch (process.platform) {
     case "darwin": {
-      const text = await output("pmset", ["-g", "batt"]);
-      return text ? parsePmset(text) : UNKNOWN_POWER;
+      const [battery, settings] = await Promise.all([output("pmset", ["-g", "batt"]), output("pmset", ["-g"])]);
+      if (!battery) return UNKNOWN_POWER;
+      return { ...parsePmset(battery), lowPowerMode: settings ? parsePmsetLowPower(settings) : null };
     }
     case "win32": {
       const text = await output("powershell", [

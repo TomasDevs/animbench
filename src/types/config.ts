@@ -49,6 +49,13 @@ export interface BatchConfig {
   refreshTolerance?: number;
   /** A run with fewer frames in its measured window is discarded. */
   minFramesInWindow?: number;
+  /**
+   * The power source the batch must run on. Laptops throttle on battery, so a
+   * charger pulled mid-batch would silently change what is being measured.
+   */
+  requirePowerSource?: "ac" | "battery";
+  /** Below this charge the batch stops before the next run. */
+  minBatteryPercent?: number;
 }
 
 export interface BrowserConfig {

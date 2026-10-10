@@ -6,7 +6,7 @@ import { buildRunUrl, expandMatrix, type BenchConfig, type Combination } from ".
 import type { RunEnvironment, RunRecord } from "../types/record.js";
 import { NdjsonWriter, installInterruptHandler } from "../output/ndjson.js";
 import { buildRunRecord } from "./build-record.js";
-import { checkQuality, qualityRules } from "./quality.js";
+import { checkQuality, powerBlocker, qualityRules } from "./quality.js";
 import { measureOnce, type SingleRunOutcome } from "./single-run.js";
 import { withTarget } from "./target.js";
 
@@ -154,6 +154,11 @@ export async function runBatch(
           }
 
           const powerStart = await target.readPower();
+          const blocker = powerBlocker(powerStart, rules);
+          if (blocker) {
+            abortedAfter = { sequence: index, error: blocker };
+            break;
+          }
           let outcome: SingleRunOutcome;
           try {
             outcome = await measureOnce(page, run.url, config.timing);

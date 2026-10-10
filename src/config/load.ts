@@ -159,6 +159,18 @@ function parseTarget(value: unknown): "desktop" | "android" {
   throw new ConfigError(`browser.target must be "desktop" or "android"`);
 }
 
+function parseBatteryFloor(value: unknown): number {
+  const floor = parseCount(value, "batch.minBatteryPercent", 0, 1);
+  if (floor > 100) throw new ConfigError("batch.minBatteryPercent cannot exceed 100");
+  return floor;
+}
+
+function parseRequiredPower(value: unknown): { requirePowerSource?: "ac" | "battery" } {
+  if (value === undefined) return {};
+  if (value === "ac" || value === "battery") return { requirePowerSource: value };
+  throw new ConfigError(`batch.requirePowerSource must be "ac" or "battery"`);
+}
+
 function optionalPositive(
   source: Record<string, unknown>,
   key: string,
@@ -241,6 +253,10 @@ export function parseConfig(raw: unknown, configPath?: string): BenchConfig {
       ...(seed !== undefined ? { seed } : {}),
       ...optionalPositive(batch, "expectedRefreshRateHz"),
       ...optionalPositive(batch, "refreshTolerance", 1),
+      ...parseRequiredPower(batch["requirePowerSource"]),
+      ...(batch["minBatteryPercent"] !== undefined
+        ? { minBatteryPercent: parseBatteryFloor(batch["minBatteryPercent"]) }
+        : {}),
       ...(batch["minFramesInWindow"] !== undefined
         ? { minFramesInWindow: parseCount(batch["minFramesInWindow"], "batch.minFramesInWindow", 0, 1) }
         : {}),

@@ -157,3 +157,11 @@ test("discard rules are optional and validated", () => {
   rejects({ ...minimal, batch: { refreshTolerance: 1.5 } }, "refreshTolerance");
   rejects({ ...minimal, batch: { minFramesInWindow: 2.5 } }, "whole number");
 });
+
+test("power rules are validated", () => {
+  const config = parseConfig({ ...minimal, batch: { requirePowerSource: "battery", minBatteryPercent: 80 } });
+  assert.equal(config.batch.requirePowerSource, "battery");
+  assert.equal(config.batch.minBatteryPercent, 80);
+  rejects({ ...minimal, batch: { requirePowerSource: "mains" } }, "requirePowerSource");
+  rejects({ ...minimal, batch: { minBatteryPercent: 120 } }, "cannot exceed 100");
+});
